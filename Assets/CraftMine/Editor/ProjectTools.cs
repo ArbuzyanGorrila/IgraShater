@@ -85,7 +85,7 @@ namespace CraftMineEditor
                 "Собери сердечки без возвратов. Заблокированное движение всё равно меняет направление копания.",
                 "На уровне персонажа 6 удар E расширяется до 3 × 2. Предпросмотр показывает область.",
                 "След не держит камни. Копай осторожно рядом с нависающими валунами.",
-                "Колонна камней падает каскадом. Заряды защиты спасают от отдельных попаданий.",
+                "Валуны разнесены по шахте. Следи за их опорой; заряды защиты спасают от отдельных попаданий.",
                 "На уровне 9 персонаж получает второй заряд защиты. Здесь снова действует правило следа.",
                 "Последняя экспедиция: все сердечки одним маршрутом. Руда и XP сохраняются после победы."
             };
@@ -125,32 +125,74 @@ namespace CraftMineEditor
                 for (int n = 5; n < route.Count-1; n += 7) cells[route[n].x,route[n].y] = 'H';
                 var final = route[route.Count-1]; cells[final.x,final.y] = 'H';
                 var start = route[0]; cells[start.x,start.y] = '@';
-                // Off-route ore pockets are optional; their quantity supports crafting without endless farming.
-                int copper = 0,iron = 0,gold = 0,diamond = 0;
-                for (int y = 2; y < h-1; y++) for (int x = 2; x < w-1; x++)
-                {
-                    var p = P(x,y);
-                    if (routeSet.Contains(p)) continue;
-                    if (copper < 10) { cells[x,y] = 'c'; copper++; }
-                    else if (index >= 2 && iron < 12) { cells[x,y] = 'i'; iron++; }
-                    else if (index >= 4 && gold < 10) { cells[x,y] = 'g'; gold++; }
-                    else if (index >= 7 && diamond < 8) { cells[x,y] = 'd'; diamond++; }
-                }
-                // Rock supports stay off the witness route. Alternative excavation can trigger hazards.
-                int placed = 0;
-                for (int y = h-2; y >= 4 && placed < 2+index/2; y--)
-                    for (int x = 2; x < w-2 && placed < 2+index/2; x++)
-                        if (!routeSet.Contains(P(x,y)) && !routeSet.Contains(P(x,y-1)) && cells[x,y] == '.' && cells[x,y-1] == '.')
-                        { cells[x,y] = 'O'; placed++; x++; }
                 // Fixed wall piers make pockets and turn decisions clearer without blocking the witness.
                 for (int x = 3; x < w-2; x += 4)
                     if (!routeSet.Contains(P(x,h-2)) && cells[x,h-2] == '.') cells[x,h-2] = '#';
+                PlaceDeposits(cells,routeSet,index);
                 var room = ScriptableObject.CreateInstance<RoomDefinition>(); room.title = titles[index]; room.lesson = lessons[index];
                 room.strictTrail = index == 2 || index == 4 || index == 6 || index == 8 || index == 9;
                 room.solution = solution; room.par = solution.Length; room.rows = new string[h];
                 for (int y = 0; y < h; y++) { var row = new char[w]; for (int x = 0; x < w; x++) row[x] = cells[x,h-1-y]; room.rows[y] = new string(row); }
                 AssetDatabase.CreateAsset(room,path);
             }
+        }
+        // Stable per-room ordering scatters optional deposits without changing the authored route.
+        private static void PlaceDeposits(char[,] cells,HashSet<Vector2Int> route,int index)
+        {
+            int w = cells.GetLength(0),h = cells.GetLength(1);
+            var candidates = new List<Vector2Int>();
+            for (int y = 2; y < h-1; y++) for (int x = 1; x < w-1; x++)
+                if (cells[x,y] == '.' && !route.Contains(P(x,y))) candidates.Add(P(x,y));
+            candidates.Sort((a,b) => PlacementKey(a,index).CompareTo(PlacementKey(b,index)));
+
+            var rocks = new List<Vector2Int>();
+            foreach (var p in candidates)
+            {
+                if (rocks.Count >= 2+index/2) break;
+                if (route.Contains(p+Vector2Int.down) || cells[p.x,p.y-1] != '.') continue;
+                if (rocks.Exists(other => Math.Abs(other.x-p.x)+Math.Abs(other.y-p.y) < 4)) continue;
+                cells[p.x,p.y] = 'O'; rocks.Add(p);
+            }
+
+            char[] kinds = {'c','i','g','d'};
+            int[] remaining = {10,index >= 2 ? 12 : 0,index >= 4 ? 10 : 0,index >= 7 ? 8 : 0};
+            int nextKind = index%4;
+            foreach (var p in candidates)
+            {
+                if (cells[p.x,p.y] != '.' || rocks.Contains(p+Vector2Int.up) || !CanPlaceDeposit(cells,p)) continue;
+                for (int n = 0; n < kinds.Length; n++)
+                {
+                    int kind = (nextKind+n)%kinds.Length;
+                    if (remaining[kind] == 0) continue;
+                    cells[p.x,p.y] = kinds[kind]; remaining[kind]--; nextKind = (kind+1)%kinds.Length;
+                    break;
+                }
+            }
+        }
+        private static uint PlacementKey(Vector2Int p,int index)
+        {
+            unchecked
+            {
+                uint value = (uint)(p.x*73856093 ^ p.y*19349663 ^ (index+1)*83492791);
+                value ^= value >> 13; return value*1274126177u;
+            }
+        }
+        private static bool IsDeposit(char cell) => cell == 'c' || cell == 'i' || cell == 'g' || cell == 'd' || cell == 'O';
+        private static bool CanPlaceDeposit(char[,] cells,Vector2Int p)
+        {
+            // Leave dirt between small pockets; never create a line of three ores or rocks.
+            foreach (var axis in new[] {Vector2Int.right,Vector2Int.up})
+            {
+                int length = 1;
+                foreach (int sign in new[] {-1,1})
+                {
+                    var next = p+axis*sign;
+                    while (next.x > 0 && next.x < cells.GetLength(0)-1 && next.y > 0 && next.y < cells.GetLength(1)-1 && IsDeposit(cells[next.x,next.y]))
+                    { length++; next += axis*sign; }
+                }
+                if (length > 2) return false;
+            }
+            return true;
         }
         private static Vector2Int P(int x,int y) => new Vector2Int(x,y);
     }

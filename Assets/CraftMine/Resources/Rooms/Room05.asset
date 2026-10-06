@@ -22,15 +22,15 @@ MonoBehaviour:
   par: 50
   rows:
   - '##############'
-  - '#.O#...#...#.#'
-  - '#.O.....H..H.#'
-  - '#.O..........#'
-  - '#..H......H..#'
-  - '#.gggggggg...#'
-  - '#.g....H....g#'
-  - '#.i.iiiiiiiii#'
+  - '#Oi#.gc#...#.#'
+  - '#.i.....H..H.#'
+  - '#i..g.gi..gi.#'
+  - '#iOH......H..#'
+  - '#....c.ic.g.O#'
+  - '#c.....H.....#'
+  - '#Og.i.g.cc.ci#'
   - '#.i.H......Hi#'
-  - '#.ccccccccc.c#'
+  - '#c.ci.cg.gg..#'
   - '#@....H......#'
   - '##############'
   solution: DDDDDDDDDDWWAAAAAAAAWWDDDDDDDDWWAAAAAAAAWWDDDDDDDD

@@ -24,7 +24,11 @@ namespace CraftMine
         public void Initialize(GameController controller)
         {
             game = controller; art = GetComponent<GridView>();
+#if UNITY_2023_1_OR_NEWER
+            body = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+#else
             body = Resources.GetBuiltinResource<Font>("Arial.ttf");
+#endif
             display = Resources.Load<Font>("Fonts/PressStart2P");
             var obj = new GameObject("CraftMine interface",typeof(Canvas),typeof(GraphicRaycaster));
             canvas = obj.GetComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -198,7 +202,9 @@ namespace CraftMine
         }
         public void Refresh()
         {
+            if (game == null || game.Balance == null || game.Profile == null) return;
             bool attempt = game.Screen == ScreenMode.Playing || game.Screen == ScreenMode.Paused || game.Screen == ScreenMode.Results;
+            if (attempt && game.Model == null) return;
             int totalXP = attempt ? game.Model.State.experience : game.Profile.totalExperience;
             int level = game.Balance.Level(totalXP), current = totalXP-game.Balance.Threshold(level);
             int required = game.Balance.Threshold(level+1)-game.Balance.Threshold(level);
@@ -225,20 +231,23 @@ namespace CraftMine
         private static string FormatTime(float seconds) => ((int)seconds/60).ToString("00") + ":" + ((int)seconds%60).ToString("00");
         private void Update()
         {
+            if (canvas == null || stage == null || game == null) return;
             canvas.scaleFactor = Mathf.Min(Screen.width/1600f,Screen.height/900f);
             if (Time.unscaledTime > nextRefresh) { nextRefresh = Time.unscaledTime+.1f; Refresh(); }
+            var eventSystem = EventSystem.current;
+            if (eventSystem == null) return;
             if (Input.GetKeyDown(KeyCode.Tab))
             {
                 var buttons = stage.GetComponentsInChildren<Button>();
                 var valid = new List<Button>(); foreach (var b in buttons) if (b.interactable) valid.Add(b);
                 if (valid.Count > 0)
                 {
-                    int selected = valid.FindIndex(b => b.gameObject == EventSystem.current.currentSelectedGameObject);
-                    EventSystem.current.SetSelectedGameObject(valid[(selected+1)%valid.Count].gameObject);
+                    int selected = valid.FindIndex(b => b.gameObject == eventSystem.currentSelectedGameObject);
+                    eventSystem.SetSelectedGameObject(valid[(selected+1)%valid.Count].gameObject);
                 }
             }
-            if (Input.GetKeyDown(KeyCode.Return) && EventSystem.current.currentSelectedGameObject != null)
-            { var b = EventSystem.current.currentSelectedGameObject.GetComponent<Button>(); if (b != null && b.interactable) b.onClick.Invoke(); }
+            if (Input.GetKeyDown(KeyCode.Return) && eventSystem.currentSelectedGameObject != null)
+            { var b = eventSystem.currentSelectedGameObject.GetComponent<Button>(); if (b != null && b.interactable) b.onClick.Invoke(); }
         }
         private void OnDestroy() { if (canvas != null) Destroy(canvas.gameObject); }
     }

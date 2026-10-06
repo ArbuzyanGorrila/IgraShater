@@ -21,13 +21,13 @@ MonoBehaviour:
   par: 30
   rows:
   - '############'
-  - '#..#...#...#'
-  - '#....H...H.#'
-  - '#..iii.....#'
-  - '#...H......#'
-  - '#.iiiiiiiiH#'
-  - '#.cci......#'
-  - '#.cccHccccc#'
+  - '#ci#cc.#.iO#'
+  - '#c...H...H.#'
+  - '#...ci.c.ii#'
+  - '#c..H......#'
+  - '#i.iO..ic.H#'
+  - '#.i........#'
+  - '#.ic.HOi.ci#'
   - '#@.........#'
   - '############'
   solution: DDDDWWDDDDDWWAAAAAAAAWWDDDDDDD
