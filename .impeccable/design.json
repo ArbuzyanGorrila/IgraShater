@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-06T09:26:36Z",
+  "title": "CraftMine visual direction",
+  "extensions": {
+    "platform": {
+      "target": "Windows desktop",
+      "engine": "Unity 2022.3.62f3",
+      "language": "C#",
+      "interface": "Unity uGUI, ScreenSpaceOverlay canvas",
+      "world": "Orthographic camera, Tilemap and SpriteRenderer",
+      "uiLanguage": "Russian",
+      "input": "Keyboard and mouse",
+      "documentationSource": "DESIGN.md",
+      "implementationSources": [
+        "Assets/CraftMine/Scripts/GameUI.cs",
+        "Assets/CraftMine/Scripts/GridView.cs"
+      ],
+      "componentPreviewFormat": "Native Unity descriptions; HTML and CSS previews do not represent this implementation."
+    },
+    "colorMeta": {
+      "background": {
+        "role": "neutral",
+        "displayName": "Midnight navy",
+        "canonical": "#111822",
+        "purpose": "Full-frame background and mine camera clear color.",
+        "nativeValue": [0.067, 0.094, 0.133, 1]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Slate",
+        "canonical": "#202D3B",
+        "purpose": "Expedition panel and full-panel settings, room map and workshop surfaces.",
+        "nativeValue": [0.125, 0.176, 0.231, 1]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Warm white",
+        "canonical": "#F0E9DC",
+        "purpose": "Primary Russian body text and disabled button captions.",
+        "nativeValue": [0.94, 0.91, 0.86, 1]
+      },
+      "secondary": {
+        "role": "neutral",
+        "displayName": "Muted blue-gray",
+        "canonical": "#A7B7C8",
+        "purpose": "Supporting instructions, progress details and secondary status text.",
+        "nativeValue": [0.65, 0.72, 0.79, 1]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Amber",
+        "canonical": "#F5BA63",
+        "purpose": "Active controls, display title, XP fill and highlighted character or result information.",
+        "nativeValue": [0.96, 0.73, 0.39, 1]
+      }
+    },
+    "colorNotation": "Canonical hex names are preserved from DESIGN.md; nativeValue records the actual normalized Unity Color values, which can differ slightly when rounded to 8-bit channels.",
+    "typographyMeta": {
+      "display": {
+        "displayName": "Pixel display",
+        "fontFamily": "Press Start 2P",
+        "resource": "Fonts/PressStart2P",
+        "purpose": "CRAFTMINE title only.",
+        "sizesInStagePixels": { "home": 48, "otherScreens": 28 }
+      },
+      "body": {
+        "displayName": "Readable Russian body",
+        "fontFamily": "Arial",
+        "resource": "Unity built-in Arial.ttf",
+        "purpose": "Russian headings, instructions, character statistics, resources and button captions.",
+        "usualSizeRangeInStagePixels": [18, 28],
+        "defaultLabelSizeInStagePixels": 22,
+        "buttonSizeInStagePixels": 22,
+        "exceptions": { "resultHeading": 29 },
+        "wrapping": "Horizontal wrap; vertical overflow truncates.",
+        "inventoryLineSpacing": 1.37
+      }
+    },
+    "nativeLayout": {
+      "referenceStage": { "width": 1600, "height": 900, "anchor": "screen center" },
+      "scale": "min(Screen.width / 1600, Screen.height / 900)",
+      "margins": {
+        "x": "(Screen.width - 1600 * scale) / 2",
+        "y": "(Screen.height - 900 * scale) / 2"
+      },
+      "uiCoordinates": "Stage pixels from top-left; y increases downward.",
+      "boardViewport": {
+        "coordinateOrigin": "Stage bottom-left; y increases upward.",
+        "x": 40,
+        "y": 165,
+        "width": 1020,
+        "height": 530,
+        "cameraFit": "max(roomHeight / 2 + 0.3, (roomWidth / 2 + 0.3) / cameraAspect)"
+      },
+      "rightPanel": { "x": 1100, "y": 40, "width": 460, "height": 765 },
+      "rightPanelContent": { "x": 1130, "width": 400 },
+      "home": {
+        "characterPanelY": 145,
+        "buttonY": [565, 625, 685, 745],
+        "purpose": "Keep all four resource rows visible above the menu actions."
+      },
+      "responsiveBehavior": "Uniformly scale the centered reference stage; recalculate the board viewport on window resize."
+    },
+    "shape": { "corners": "Square", "radiusInStagePixels": 0 },
+    "depth": {
+      "interface": "Flat colored plates and tonal contrast.",
+      "worldSortingOrder": { "terrain": 0, "trail": 1, "oreAndHearts": 2, "boulders": 3, "player": 4, "miningAndDanger": 5, "direction": 6 }
+    },
+    "motion": [
+      { "name": "accepted-action", "value": "1 - (1 - t)^3", "purpose": "Short movement beat interpolating the player to the settled grid position; a stationary dig pulses the player scale." },
+      { "name": "boulder-tick", "value": "0.065 seconds", "purpose": "Interpolate each group of boulder movements; fade destroyed boulders." },
+      { "name": "fall-feedback", "value": "0.12 seconds, horizontal amplitude 0.035 world units", "purpose": "Brief board-camera feedback following a fall." }
+    ],
+    "framebuffer": {
+      "invariant": "Clear the entire frame before rendering the board viewport so removed UI labels and panels leave no stale pixels.",
+      "cameraName": "Frame background",
+      "depth": -10,
+      "cullingMask": 0,
+      "clearFlags": "SolidColor",
+      "backgroundColorRef": "background"
+    },
+    "assets": {
+      "sourceArt": "Kenney Pixel Platformer and character sheet",
+      "license": "CC0",
+      "filtering": "Point",
+      "resources": ["Art/KenneyPixelPlatformer", "Art/KenneyCharacters"],
+      "oreColors": {
+        "copper": [1, 0.65, 0.35, 1],
+        "iron": [0.7, 0.84, 0.94, 1],
+        "gold": [1, 0.87, 0.2, 1],
+        "diamond": [0.25, 0.95, 1, 1]
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Action button",
+      "kind": "button",
+      "description": "Square amber Unity Image and Button with a centered Arial caption. Default height 54 stage pixels; caption inset is 12 horizontally and 6 vertically.",
+      "nativeImplementation": "GameUI.Button",
+      "states": {
+        "normalMultiplier": [1, 1, 1, 1],
+        "highlightedMultiplier": [1.08, 1.08, 1.08, 1],
+        "pressedMultiplier": [0.82, 0.82, 0.82, 1],
+        "selectedMultiplier": [1.1, 1.1, 1.1, 1],
+        "disabledMultiplier": [0.38, 0.43, 0.48, 1],
+        "enabledCaption": [0.08, 0.12, 0.17, 1],
+        "disabledCaptionRef": "text"
+      },
+      "interaction": "Mouse click; Tab selects the next interactable button; Enter invokes the selected action."
+    },
+    {
+      "name": "Expedition panel",
+      "kind": "card",
+      "description": "Square slate right-hand panel for character progression, ore inventory and contextual actions.",
+      "nativeImplementation": "GameUI.Rebuild and GameUI.CharacterPanel"
+    },
+    {
+      "name": "Character and inventory",
+      "kind": "custom",
+      "description": "Amber level heading, secondary XP text, eight-pixel-high XP bar, pickaxe and protection statistics, then four ore-colored icon and text rows.",
+      "nativeImplementation": "GameUI.CharacterPanel and GameUI.Refresh"
+    },
+    {
+      "name": "Mine board",
+      "kind": "custom",
+      "description": "Orthographic point-filtered pixel grid on the left, with distinct terrain, trail, ores, red hearts, boulders and player layers.",
+      "nativeImplementation": "GridView.LoadBoard, GridView.DrawState and GridView.FitCamera"
+    },
+    {
+      "name": "Forward mining preview",
+      "kind": "custom",
+      "description": "Amber preview marks the actual forward mining area; a small arrow indicates current facing. Optional red marks show possible falling-boulder cells.",
+      "nativeImplementation": "GridView.RefreshOverlays",
+      "visibility": "Shown only during active play; hidden for menu appearance and completed or failed runs."
+    },
+    {
+      "name": "Full-panel views",
+      "kind": "custom",
+      "description": "Room map, workshop and settings occupy a slate left panel while retaining the expedition panel on the right.",
+      "nativeImplementation": "GameUI.Rooms, GameUI.Workshop and GameUI.Settings"
+    }
+  ],
+  "narrative": {
+    "overview": "Pixel mine with a clear orthographic grid. The playfield occupies the left two thirds, a narrow expedition panel occupies the right. Source art is Kenney Pixel Platformer, rendered with point filtering; no pre-existing sprites are used. Hearts remain red, copper amber, iron cool gray, gold yellow, diamonds cyan.",
+    "keyCharacteristics": ["Square UI corners", "Large readable Russian lettering", "Directional mining preview", "Short accepted-action feedback", "Full-panel settings and workshop"],
+    "rules": [
+      { "name": "Puzzle analysis", "body": "No decorative interface motion during puzzle analysis.", "section": "components" },
+      { "name": "Frame clearing", "body": "Clear the full frame before drawing the board viewport to prevent stale UI pixels after screen changes.", "section": "elevation" }
+    ],
+    "dos": [],
+    "donts": []
+  }
+}

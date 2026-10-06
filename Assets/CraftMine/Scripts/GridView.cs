@@ -9,11 +9,14 @@ namespace CraftMine
     {
         private GameController game;
         private Camera boardCamera;
+        private Camera backgroundCamera;
+        private Material mineralMaterial;
         private Tilemap terrain;
         private GameObject boardRoot, itemRoot, overlayRoot;
         private SpriteRenderer player;
         private readonly Dictionary<int, Sprite> platformSprites = new Dictionary<int, Sprite>();
         private readonly Dictionary<int, Tile> terrainTiles = new Dictionary<int, Tile>();
+        private readonly Dictionary<Vector2Int, SpriteRenderer> boulderSprites = new Dictionary<Vector2Int, SpriteRenderer>();
         private Texture2D platformSheet, characterSheet;
         private Sprite hero;
         private bool menu;
@@ -26,6 +29,7 @@ namespace CraftMine
             game = controller;
             platformSheet = Resources.Load<Texture2D>("Art/KenneyPixelPlatformer");
             characterSheet = Resources.Load<Texture2D>("Art/KenneyCharacters");
+            mineralMaterial = new Material(Resources.Load<Shader>("Art/MineralTint"));
             hero = Sprite.Create(characterSheet, new Rect(6*24, characterSheet.height-24,24,24),new Vector2(.5f,.5f),24);
             boardCamera = Camera.main;
             if (boardCamera == null)
@@ -34,6 +38,12 @@ namespace CraftMine
                 cameraObject.tag = "MainCamera"; boardCamera = cameraObject.GetComponent<Camera>();
             }
             boardCamera.orthographic = true;
+            // A viewport camera cannot clear pixels beneath the UI outside its viewport.
+            // Clear the full frame first so removed labels and panels leave no stale pixels.
+            backgroundCamera = new GameObject("Frame background",typeof(Camera)).GetComponent<Camera>();
+            backgroundCamera.depth = -10; backgroundCamera.cullingMask = 0;
+            backgroundCamera.clearFlags = CameraClearFlags.SolidColor;
+            backgroundCamera.backgroundColor = new Color(.067f,.094f,.133f);
             boardCamera.backgroundColor = new Color(.067f,.094f,.133f);
             boardCamera.clearFlags = CameraClearFlags.SolidColor;
         }
@@ -79,9 +89,10 @@ namespace CraftMine
             for (int i = parent.childCount-1; i >= 0; i--)
             { var child = parent.GetChild(i).gameObject; child.SetActive(false); Destroy(child); }
         }
-        private void DrawState(bool updatePlayer = true)
+        private void DrawState(bool updatePlayer = true, bool drawBoulders = true)
         {
             Clear(itemRoot.transform);
+            boulderSprites.Clear();
             var model = game.Model; var state = model.State;
             for (int y = 0; y < model.Height; y++) for (int x = 0; x < model.Width; x++)
             {
@@ -94,9 +105,13 @@ namespace CraftMine
                     Render("След",Icon(151),p,1,new Color(1,.8f,.3f,.42f),.2f,itemRoot.transform);
                 int ore = CraftMineSettings.OreIndex(cell);
                 if (ore >= 0)
-                    Render(CraftMineSettings.OreNames[ore],Icon(ore == 3 ? 67 : 7),p,2,OreColors[ore],.8f,itemRoot.transform);
+                    Render(CraftMineSettings.OreNames[ore],Icon(ore == 3 ? 67 : 7),p,2,OreColors[ore],.8f,itemRoot.transform).sharedMaterial = mineralMaterial;
                 if (state.hearts[x,y]) Render("Сердечко",Icon(44),p,2,Color.white,.68f,itemRoot.transform);
-                if (cell == CellType.Boulder) Render("Валун",Icon(7),p,3,new Color(.67f,.76f,.83f),1.15f,itemRoot.transform);
+                if (cell == CellType.Boulder && drawBoulders)
+                {
+                    boulderSprites[p] = Render("Валун",Icon(7),p,3,new Color(.67f,.76f,.83f),1.15f,itemRoot.transform);
+                    boulderSprites[p].sharedMaterial = mineralMaterial;
+                }
             }
             if (updatePlayer) player.transform.position = new Vector3(state.player.x+.5f,state.player.y+.5f,0);
             player.flipX = state.facing == Vector2Int.left;
@@ -118,6 +133,44 @@ namespace CraftMine
                 yield return null;
             }
             player.transform.localScale = Vector3.one*1.05f;
+            if (result.boulders.Count > 0)
+            {
+                var originalPositions = new List<Vector2Int>(boulderSprites.Keys);
+                DrawState(true,false);
+                foreach (var p in originalPositions)
+                {
+                    boulderSprites[p] = Render("Падающий валун",Icon(7),p,3,new Color(.67f,.76f,.83f),1.15f,itemRoot.transform);
+                    boulderSprites[p].sharedMaterial = mineralMaterial;
+                }
+                int index = 0;
+                while (index < result.boulders.Count)
+                {
+                    int tick = result.boulders[index].tick;
+                    var flights = new List<KeyValuePair<BoulderMotion,SpriteRenderer>>();
+                    while (index < result.boulders.Count && result.boulders[index].tick == tick)
+                    {
+                        var motion = result.boulders[index++];
+                        if (boulderSprites.TryGetValue(motion.from,out var rock)) flights.Add(new KeyValuePair<BoulderMotion,SpriteRenderer>(motion,rock));
+                    }
+                    for (float t = 0; t < .065f; t += Time.unscaledDeltaTime)
+                    {
+                        float fraction = Mathf.Clamp01(t/.065f);
+                        foreach (var flight in flights)
+                        {
+                            var motion = flight.Key;
+                            flight.Value.transform.position = Vector2.Lerp((Vector2)motion.from+Vector2.one*.5f,(Vector2)motion.to+Vector2.one*.5f,fraction);
+                            if (motion.destroyed) flight.Value.color = new Color(1,1,1,1-fraction);
+                        }
+                        yield return null;
+                    }
+                    foreach (var flight in flights) boulderSprites.Remove(flight.Key.from);
+                    foreach (var flight in flights)
+                    {
+                        if (flight.Key.destroyed) flight.Value.enabled = false;
+                        else { boulderSprites[flight.Key.to] = flight.Value; flight.Value.transform.position = (Vector2)flight.Key.to+Vector2.one*.5f; }
+                    }
+                }
+            }
             DrawState();
             if (result.falls > 0)
             {
@@ -154,7 +207,7 @@ namespace CraftMine
             lastWidth = Screen.width; lastHeight = Screen.height;
             float scale = Mathf.Min(Screen.width/1600f,Screen.height/900f);
             float marginX = (Screen.width-1600*scale)/2, marginY = (Screen.height-900*scale)/2;
-            boardCamera.pixelRect = new Rect(marginX+40*scale,marginY+115*scale,1020*scale,630*scale);
+            boardCamera.pixelRect = new Rect(marginX+40*scale,marginY+165*scale,1020*scale,530*scale);
             boardCamera.orthographicSize = Mathf.Max(game.Model.Height/2f+.3f,(game.Model.Width/2f+.3f)/boardCamera.aspect);
             boardCamera.transform.position = new Vector3(game.Model.Width/2f,game.Model.Height/2f,-10);
         }
@@ -164,6 +217,8 @@ namespace CraftMine
             foreach (var sprite in platformSprites.Values) Destroy(sprite);
             foreach (var tile in terrainTiles.Values) Destroy(tile);
             if (hero != null) Destroy(hero);
+            if (mineralMaterial != null) Destroy(mineralMaterial);
+            if (backgroundCamera != null) Destroy(backgroundCamera.gameObject);
         }
     }
 }

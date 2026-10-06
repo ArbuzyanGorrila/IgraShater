@@ -32,6 +32,14 @@ namespace CraftMine
         public int dug, hearts, falls, shields, levelsGained;
         public Vector2Int previousPlayer;
         public readonly List<Vector2Int> excavated = new List<Vector2Int>();
+        public readonly List<BoulderMotion> boulders = new List<BoulderMotion>();
+    }
+
+    public sealed class BoulderMotion
+    {
+        public Vector2Int from, to;
+        public int tick;
+        public bool destroyed;
     }
 
     // All gameplay changes live here. Presentation never writes the board.
@@ -97,20 +105,21 @@ namespace CraftMine
         {
             if (Math.Abs(direction.x) + Math.Abs(direction.y) == 1) State.facing = direction;
         }
-        public List<Vector2Int> MiningArea()
+        public List<Vector2Int> MiningArea() => MiningArea(State.facing);
+        private List<Vector2Int> MiningArea(Vector2Int facing)
         {
             var result = new List<Vector2Int>();
             var reached = new HashSet<Vector2Int> { State.player };
-            var side = new Vector2Int(-State.facing.y, State.facing.x);
+            var side = new Vector2Int(-facing.y, facing.x);
             int radius = Settings.Radius(Level), half = radius > 1 ? 1 : 0;
             // Grow each row from reachable preceding/neighbor cells; never tunnel through an obstacle.
             for (int depth = 1; depth <= radius; depth++)
                 for (int pass = 0; pass < 3; pass++)
                     for (int offset = -half; offset <= half; offset++)
                     {
-                        var p = State.player + State.facing * depth + side * offset;
+                        var p = State.player + facing * depth + side * offset;
                         if (!Inside(p) || reached.Contains(p) || (Cell(p) != CellType.Air && !CanMine(Cell(p)))) continue;
-                        if (!(reached.Contains(p - State.facing) || reached.Contains(p - side) || reached.Contains(p + side))) continue;
+                        if (!(reached.Contains(p - facing) || reached.Contains(p - side) || reached.Contains(p + side))) continue;
                         reached.Add(p);
                         if (CanMine(Cell(p))) result.Add(p);
                     }
@@ -183,6 +192,7 @@ namespace CraftMine
         public void ResolveGravity(ActionResult result)
         {
             bool moved;
+            int tick = 0;
             do
             {
                 moved = false;
@@ -203,15 +213,18 @@ namespace CraftMine
                             if (!rolled) continue;
                         }
                         State.cells[x,y] = CellType.Air; moved = true; result.falls++;
+                        var motion = new BoulderMotion { from = source,to = target,tick = tick };
+                        result.boulders.Add(motion);
                         if (target == State.player)
                         {
                             if (State.charges > 0)
-                            { State.charges--; State.protectionUsed++; result.shields++; continue; }
+                            { State.charges--; State.protectionUsed++; result.shields++; motion.destroyed = true; continue; }
                             State.cells[target.x,target.y] = CellType.Boulder;
                             State.status = RunStatus.Lost; return;
                         }
                         State.cells[target.x,target.y] = CellType.Boulder;
                     }
+                tick++;
             } while (moved);
         }
         private bool HasAction()
@@ -219,8 +232,7 @@ namespace CraftMine
             foreach (var d in Directions)
             {
                 if (CanEnter(State.player + d)) return true;
-                // Area mining requires a clear/minable first cell in the facing direction.
-                if (CanMine(Cell(State.player + d))) return true;
+                if (MiningArea(d).Count > 0) return true;
             }
             return false;
         }

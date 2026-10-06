@@ -38,7 +38,9 @@ namespace CraftMine
             Array.Sort(Recipes, (a,b) => a.pickaxeTier.CompareTo(b.pickaxeTier));
             if (Balance == null || Rooms.Length != 10 || Recipes.Length != 4)
                 throw new InvalidOperationException("CraftMine content missing. Use Tools > CraftMine > Prepare project.");
-            saves = new SaveService(); Profile = saves.Load();
+            string captureDirectory = CommandLineCapture.OutputDirectory();
+            saves = new SaveService(captureDirectory == null ? null : System.IO.Path.Combine(captureDirectory,"qa-profile.json"));
+            Profile = saves.Load();
             view = gameObject.AddComponent<GridView>(); view.Initialize(this);
             ui = gameObject.AddComponent<GameUI>(); ui.Initialize(this);
             audioSource = gameObject.AddComponent<AudioSource>();
@@ -48,6 +50,7 @@ namespace CraftMine
             StartRoomPreview();
             if (saves.Notice != null) Notify(saves.Notice, 12);
             Application.targetFrameRate = 60;
+            if (captureDirectory != null) gameObject.AddComponent<CommandLineCapture>();
         }
         private void Update()
         {
@@ -69,9 +72,13 @@ namespace CraftMine
             else if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) direction = Vector2Int.right;
             else if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) direction = Vector2Int.down;
             else if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) direction = Vector2Int.left;
-            if (direction != Vector2Int.zero) Act(Model.Step(direction));
-            else if (Input.GetKey(KeyCode.E)) Act(Model.Mine());
+            if (direction != Vector2Int.zero) PerformStep(direction);
+            else if (Input.GetKey(KeyCode.E)) PerformMine();
         }
+        public void PerformStep(Vector2Int direction)
+        { if (!Busy && Screen == ScreenMode.Playing) Act(Model.Step(direction)); }
+        public void PerformMine()
+        { if (!Busy && Screen == ScreenMode.Playing) Act(Model.Mine()); }
         public void Show(ScreenMode screen)
         {
             if (Busy) return;

@@ -50,9 +50,13 @@ namespace CraftMineEditor
         [MenuItem("Tools/CraftMine/Build Windows")]
         public static void BuildWindows()
         {
-            Setup(); Directory.CreateDirectory("Builds/Windows");
+            Setup();
+            string output = "Builds/Windows/CraftMine.exe";
+            var args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length-1; i++) if (args[i] == "--craftmine-output") output = Path.GetFullPath(args[i+1]);
+            Directory.CreateDirectory(Path.GetDirectoryName(output));
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
-                scenes = new[] { ScenePath }, locationPathName = "Builds/Windows/CraftMine.exe",
+                scenes = new[] { ScenePath }, locationPathName = output,
                 target = BuildTarget.StandaloneWindows64, options = BuildOptions.None
             });
             if (report.summary.result != BuildResult.Succeeded) throw new Exception("CraftMine build failed: " + report.summary.result);

@@ -51,6 +51,7 @@ namespace CraftMineTests
         {
             var m = Basic(new PlayerProfile { totalExperience = settings.Threshold(level) });
             m.State.player = new Vector2Int(1,3); m.Face(Vector2Int.right);
+            m.State.cells[2,3] = CellType.Dirt;
             Assert.AreEqual(count,m.MiningArea().Count);
         }
         [TestCase(0,1)] [TestCase(1,0)] [TestCase(0,-1)] [TestCase(-1,0)]
@@ -80,10 +81,29 @@ namespace CraftMineTests
         }
         [Test] public void RockColumnSettlesWithoutOverlap()
         {
-            var m = Make(new PlayerProfile(),"#######","# O   #","# O   #","# O   #","# O   #","# O   #","#     #","#@ H  #","#######");
+            var m = Make(new PlayerProfile(),"#######","##O#  #","##O#  #","##O#  #","##O#  #","##O#  #","## #  #","## #@H#","#######");
             m.ResolveGravity(new ActionResult());
             for (int y = 1; y <= 5; y++) Assert.AreEqual(CellType.Boulder,m.State.cells[2,y]);
             Assert.AreEqual(CellType.Air,m.State.cells[2,6]); Assert.AreEqual(RunStatus.Playing,m.State.status);
+        }
+        [Test] public void BoulderRollsLeftFirstWhenBothSidesAreOpen()
+        {
+            var m = Make(new PlayerProfile(),"#######","# O   #","# O   #","##O#@H#","#######");
+            m.ResolveGravity(new ActionResult());
+            Assert.AreEqual(CellType.Boulder,m.State.cells[1,2]);
+            Assert.AreEqual(CellType.Air,m.State.cells[2,3]);
+            var settled = new ActionResult(); m.ResolveGravity(settled); Assert.AreEqual(0,settled.falls);
+        }
+        [Test] public void DiggingAirCannotAwardExperienceAgain()
+        {
+            var m = Basic(); m.Mine(); int experience = m.State.experience;
+            Assert.IsFalse(m.Mine().accepted); Assert.AreEqual(experience,m.State.experience);
+        }
+        [Test] public void StartingANewAttemptDoesNotKeepPendingExperienceOrOre()
+        {
+            var profile = new PlayerProfile(); var m = Basic(profile); m.State.cells[3,3] = CellType.Copper; m.Mine();
+            var reset = new GameModel(room,settings,profile);
+            Assert.AreEqual(0,reset.State.experience); Assert.AreEqual(0,reset.State.loot[0]); Assert.AreEqual(0,profile.inventory[0]);
         }
         [Test] public void BoulderHitWithoutShieldLoses()
         {
@@ -125,6 +145,13 @@ namespace CraftMineTests
         {
             var m = Basic(); room.strictTrail = true; m.Step(Vector2Int.right);
             Assert.IsFalse(m.Step(Vector2Int.left).accepted);
+        }
+        [Test] public void AreaMiningRemainsAnActionWhenAdjacentTrailBlocksWalking()
+        {
+            var m = Basic(new PlayerProfile { totalExperience = settings.Threshold(6) }); room.strictTrail = true;
+            foreach (var d in GameModel.Directions)
+            { var p = m.State.player+d; m.State.cells[p.x,p.y] = CellType.Air; m.State.trail[p.x,p.y] = true; }
+            Assert.IsTrue(m.Mine().accepted); Assert.AreEqual(RunStatus.Playing,m.State.status);
         }
         [Test] public void LastHeartDoesNotWinIfRockKillsHero()
         {

@@ -62,7 +62,7 @@ namespace CraftMine
             colors.disabledColor = new Color(.38f,.43f,.48f); button.colors = colors; button.interactable = enabled;
             var label = Rect("Caption",12,6,w-24,h-12,rect).gameObject.AddComponent<Text>();
             label.font = body; label.fontSize = 22; label.text = text; label.alignment = TextAnchor.MiddleCenter;
-            label.color = new Color(.08f,.12f,.17f); label.raycastTarget = false;
+            label.color = enabled ? new Color(.08f,.12f,.17f) : ink; label.raycastTarget = false;
             button.onClick.AddListener(() => action()); return button;
         }
         private void Icon(int index,float x,float y,float size,Color? tint = null)
@@ -95,12 +95,12 @@ namespace CraftMine
         {
             Label("CRAFTMINE",48,42,1000,74,48,amber,true);
             Label("Прокладывай путь. Собирай сердечки.\nСтановись сильнее с каждым раскопанным блоком.",48,120,1000,70,25);
-            Label("Твоя следующая экспедиция",1130,75,400,80,27);
-            CharacterPanel(185,false);
-            Button("Начать забой " + game.Profile.unlockedRooms,1130,515,400,() => game.StartRoom(game.Profile.unlockedRooms-1));
-            Button("Карта шахты",1130,585,400,() => game.Show(ScreenMode.Rooms));
-            Button("Мастерская",1130,655,400,() => game.Show(ScreenMode.Workshop));
-            Button("Звук и управление",1130,725,400,() => game.Show(ScreenMode.Settings));
+            Label("Твоя следующая экспедиция",1130,75,400,55,25);
+            CharacterPanel(145,false);
+            Button("Начать забой " + game.Profile.unlockedRooms,1130,565,400,() => game.StartRoom(game.Profile.unlockedRooms-1));
+            Button("Карта шахты",1130,625,400,() => game.Show(ScreenMode.Rooms));
+            Button("Мастерская",1130,685,400,() => game.Show(ScreenMode.Workshop));
+            Button("Звук и управление",1130,745,400,() => game.Show(ScreenMode.Settings));
             Label("Собери все сердечки одним маршрутом.\nКамни падают, когда теряют опору.",48,762,1000,58,22,secondary);
         }
         private void CharacterPanel(float y,bool attempt)
