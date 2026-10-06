@@ -1,0 +1,6 @@
+{
+  "name": "CraftMine.Editor",
+  "references": ["CraftMine.Runtime"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

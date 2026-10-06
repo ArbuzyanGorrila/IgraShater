@@ -1,0 +1,7 @@
+{
+  "name": "CraftMine.Tests",
+  "references": ["CraftMine.Runtime"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}

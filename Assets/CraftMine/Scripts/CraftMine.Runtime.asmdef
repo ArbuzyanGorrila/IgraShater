@@ -1,0 +1,5 @@
+{
+  "name": "CraftMine.Runtime",
+  "references": ["UnityEngine.UI"],
+  "autoReferenced": true
+}

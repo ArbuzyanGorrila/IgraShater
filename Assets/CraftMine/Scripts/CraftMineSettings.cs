@@ -42,25 +42,6 @@ namespace CraftMine
         public static readonly string[] PickaxeNames = { "Деревянная", "Медная", "Железная", "Золотая", "Алмазная" };
     }
 
-    [CreateAssetMenu(menuName = "CraftMine/Room")]
-    public sealed class RoomDefinition : ScriptableObject
-    {
-        public string title;
-        [TextArea] public string lesson;
-        public bool strictTrail;
-        public int par;
-        public string[] rows;
-        public string solution;
-    }
-
-    [CreateAssetMenu(menuName = "CraftMine/Recipe")]
-    public sealed class RecipeDefinition : ScriptableObject
-    {
-        public int pickaxeTier;
-        public int requiredLevel;
-        public int[] cost = new int[4];
-    }
-
     [Serializable]
     public sealed class PlayerProfile
     {
