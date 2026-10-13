@@ -4,8 +4,7 @@ using UnityEngine;
 
 namespace CraftMine
 {
-    public enum ScreenMode { Home, Rooms, Workshop, Playing, Paused, Results, Settings }
-    public enum DiscardAction { None, Restart, Home }
+    public enum ScreenMode { Home, Rooms, Workshop, Playing, Paused, Results, Settings, Tutorial }
 
     public sealed class GameController : MonoBehaviour
     {
@@ -22,14 +21,11 @@ namespace CraftMine
         public float Elapsed { get; private set; }
         public string Message { get; private set; }
         public int EarnedStars { get; private set; }
-        public DiscardAction PendingDiscard { get; private set; }
-        public bool ConfirmationOpen => PendingDiscard != DiscardAction.None;
-        public ScreenMode SettingsReturnScreen { get; private set; } = ScreenMode.Home;
-        public bool AttemptVisible => Screen == ScreenMode.Playing || Screen == ScreenMode.Paused ||
-            Screen == ScreenMode.Results || (Screen == ScreenMode.Settings && SettingsReturnScreen == ScreenMode.Paused);
-        public bool CanUndo => !Busy && !ConfirmationOpen && !Banked && Model != null && Model.CanUndo &&
-            (Screen == ScreenMode.Playing || Screen == ScreenMode.Paused || Screen == ScreenMode.Results);
-        public int AttemptExperience => Model == null ? 0 : Math.Max(0, Model.State.experience - attemptStartExperience);
+        public TutorialProgress Tutorial { get; } = new TutorialProgress();
+        public int TutorialPage { get; private set; }
+        public ScreenMode TutorialReturnScreen { get; private set; }
+        public const int TutorialPageCount = 4;
+        private bool tutorialIntroduction;
         private float messageUntil, nextAction;
         private int attemptStartExperience;
         private bool waitForMovementRelease;
@@ -67,22 +63,23 @@ namespace CraftMine
         {
             if (Screen == ScreenMode.Playing && !ConfirmationOpen && Model.State.status == RunStatus.Playing) Elapsed += Time.unscaledDeltaTime;
             if (Message != null && Time.unscaledTime > messageUntil) Message = null;
+            if (Input.GetKeyDown(KeyCode.F1))
+            {
+                if (Screen == ScreenMode.Tutorial) CloseTutorial();
+                else OpenTutorial();
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.Escape))
             {
-                HandleEscape();
-                return;
+                if (Screen == ScreenMode.Tutorial) { CloseTutorial(); return; }
+                if (Screen == ScreenMode.Playing && !Busy) Show(ScreenMode.Paused);
+                else if (Screen == ScreenMode.Paused) Show(ScreenMode.Playing);
+                else if (Screen != ScreenMode.Playing && Screen != ScreenMode.Results) Show(ScreenMode.Home);
             }
             if (Screen != ScreenMode.Playing || Busy || ConfirmationOpen) return;
             if (Input.GetKeyDown(KeyCode.R)) { RequestRestart(); return; }
             if (Input.GetKeyDown(KeyCode.Z) || Input.GetKeyDown(KeyCode.Backspace)) { Undo(); return; }
             if (Input.GetKeyDown(KeyCode.Space)) ToggleDanger();
-            if (waitForMovementRelease)
-            {
-                waitForMovementRelease = Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.S) ||
-                    Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow) ||
-                    Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) || Input.GetKey(KeyCode.E);
-                return;
-            }
             if (Model.State.status != RunStatus.Playing || Time.unscaledTime < nextAction) return;
             Vector2Int direction = Vector2Int.zero;
             if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) direction = Vector2Int.up;
@@ -93,10 +90,58 @@ namespace CraftMine
             else if (Input.GetKey(KeyCode.E)) PerformMine();
         }
         public void PerformStep(Vector2Int direction)
-        { if (!Busy && !ConfirmationOpen && Screen == ScreenMode.Playing) Act(Model.Step(direction)); }
+        {
+            if (Busy || Screen != ScreenMode.Playing) return;
+            var result = Model.Step(direction); Tutorial.ObserveAction(result, true); Act(result);
+        }
         public void PerformMine()
-        { if (!Busy && !ConfirmationOpen && Screen == ScreenMode.Playing) Act(Model.Mine()); }
-        public void HandleEscape()
+        {
+            if (Busy || Screen != ScreenMode.Playing) return;
+            var result = Model.Mine(); Tutorial.ObserveAction(result, false); Act(result);
+        }
+        public void ToggleDanger()
+        {
+            if (Busy || Screen != ScreenMode.Playing) return;
+            ShowDanger = !ShowDanger; Tutorial.ObserveDanger(ShowDanger); view.RefreshOverlays();
+        }
+        public void OpenTutorial()
+        {
+            if (Busy || Screen == ScreenMode.Tutorial) return;
+            TutorialReturnScreen = Screen; TutorialPage = 0; tutorialIntroduction = false;
+            Show(ScreenMode.Tutorial);
+        }
+        public void ChangeTutorialPage(int offset)
+        {
+            if (Screen != ScreenMode.Tutorial) return;
+            TutorialPage = Mathf.Clamp(TutorialPage + offset, 0, TutorialPageCount - 1); ui.Rebuild();
+        }
+        public void CloseTutorial(bool skipPractice = false)
+        {
+            if (Screen != ScreenMode.Tutorial) return;
+            if (tutorialIntroduction)
+            {
+                var candidate = SaveService.Copy(Profile); candidate.tutorialSeen = true;
+                if (saves.Save(candidate)) Profile = candidate;
+                else Notify(saves.Notice, 12);
+            }
+            tutorialIntroduction = false;
+            if (skipPractice) Tutorial.Stop();
+            // Avoid a held movement key taking a step as the guide closes.
+            nextAction = Time.unscaledTime + .25f;
+            Show(TutorialReturnScreen);
+        }
+        public void StartTraining()
+        {
+            if (Screen != ScreenMode.Tutorial || TutorialReturnScreen != ScreenMode.Home) return;
+            StartRoom(0, true);
+        }
+        public void SkipTutorialStep()
+        {
+            if (Screen != ScreenMode.Playing || Busy) return;
+            if (Tutorial.Step < 4) Tutorial.SkipStep(); else Tutorial.Stop();
+            ui.Rebuild();
+        }
+        public void Show(ScreenMode screen)
         {
             if (ConfirmationOpen) { CancelDiscard(); return; }
             if (Busy) return;
@@ -158,10 +203,12 @@ namespace CraftMine
             Model = new GameModel(Rooms[0], Balance, Profile);
             view.LoadBoard(); view.SetMenuAppearance(true);
         }
-        public void StartRoom(int index)
+        public void StartRoom(int index, bool training = false)
         {
-            if (ConfirmationOpen || (Model != null && Model.State.status == RunStatus.Won && !Banked) ||
-                index < 0 || index >= Rooms.Length || index >= Profile.unlockedRooms) return;
+            if (index < 0 || index >= Rooms.Length || index >= Profile.unlockedRooms) return;
+            bool introduction = !Profile.tutorialSeen;
+            bool practice = index == 0 && (introduction || training || Tutorial.Active);
+            Tutorial.Stop(); if (practice) Tutorial.Begin();
             if (actionRoutine != null) StopCoroutine(actionRoutine);
             Busy = false; RoomIndex = index; Banked = false; ShowDanger = false; Elapsed = 0;
             attemptStartExperience = Profile.totalExperience;
@@ -170,11 +217,15 @@ namespace CraftMine
             view.LoadBoard(); view.SetMenuAppearance(false); ui.Rebuild();
             Message = null; nextAction = Time.unscaledTime + .15f;
             Notify(Rooms[index].lesson, 8);
+            if (introduction)
+            {
+                OpenTutorial(); tutorialIntroduction = true;
+            }
         }
         public void Undo()
         {
-            if (!CanUndo) return;
-            if (Model.Undo()) { Screen = ScreenMode.Playing; waitForMovementRelease = true; view.LoadBoard(); view.SetMenuAppearance(false); ui.Rebuild(); Notify("Ход отменён. Опыт и добыча восстановлены."); }
+            if (Busy || Banked) return;
+            if (Model.Undo()) { Tutorial.ObserveUndo(); Screen = ScreenMode.Playing; view.LoadBoard(); ui.Rebuild(); Notify("Ход отменён. Опыт и добыча восстановлены."); }
             else Notify("Отмена недоступна. Осталось: " + Model.UndoRemaining);
         }
         private void Act(ActionResult result)
@@ -198,7 +249,7 @@ namespace CraftMine
             if (Model.State.status != RunStatus.Playing)
             {
                 Screen = ScreenMode.Results;
-                if (Model.State.status == RunStatus.Won) BankVictory();
+                if (Model.State.status == RunStatus.Won) { Tutorial.Stop(); BankVictory(); }
                 ui.Rebuild();
             }
             else { ui.Refresh(); view.RefreshOverlays(); }
