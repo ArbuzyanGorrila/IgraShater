@@ -54,5 +54,6 @@ namespace CraftMine
         public int[] bestMoves = new int[10];
         public float[] bestSeconds = new float[10];
         public float volume = .6f;
+        public bool tutorialSeen;
     }
 }
