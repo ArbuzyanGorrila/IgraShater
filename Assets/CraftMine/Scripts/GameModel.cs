@@ -51,6 +51,7 @@ namespace CraftMine
         public readonly int PickaxeTier;
         public int UndoRemaining { get; private set; } = 3;
         public int UndoUsed => 3 - UndoRemaining;
+        public bool CanUndo => UndoRemaining > 0 && history.Count > 0 && State.status != RunStatus.Won;
         public string ReachabilityWarning { get; private set; }
         public int Width => State.cells.GetLength(0);
         public int Height => State.cells.GetLength(1);
@@ -238,7 +239,7 @@ namespace CraftMine
         }
         public bool Undo()
         {
-            if (UndoRemaining <= 0 || history.Count == 0 || State.status == RunStatus.Won) return false;
+            if (!CanUndo) return false;
             State = history[history.Count-1]; history.RemoveAt(history.Count-1); UndoRemaining--;
             UpdateReachability(); return true;
         }

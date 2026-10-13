@@ -5,6 +5,7 @@ using UnityEngine;
 namespace CraftMine
 {
     public enum ScreenMode { Home, Rooms, Workshop, Playing, Paused, Results, Settings }
+    public enum DiscardAction { None, Restart, Home }
 
     public sealed class GameController : MonoBehaviour
     {
@@ -21,7 +22,17 @@ namespace CraftMine
         public float Elapsed { get; private set; }
         public string Message { get; private set; }
         public int EarnedStars { get; private set; }
+        public DiscardAction PendingDiscard { get; private set; }
+        public bool ConfirmationOpen => PendingDiscard != DiscardAction.None;
+        public ScreenMode SettingsReturnScreen { get; private set; } = ScreenMode.Home;
+        public bool AttemptVisible => Screen == ScreenMode.Playing || Screen == ScreenMode.Paused ||
+            Screen == ScreenMode.Results || (Screen == ScreenMode.Settings && SettingsReturnScreen == ScreenMode.Paused);
+        public bool CanUndo => !Busy && !ConfirmationOpen && !Banked && Model != null && Model.CanUndo &&
+            (Screen == ScreenMode.Playing || Screen == ScreenMode.Paused || Screen == ScreenMode.Results);
+        public int AttemptExperience => Model == null ? 0 : Math.Max(0, Model.State.experience - attemptStartExperience);
         private float messageUntil, nextAction;
+        private int attemptStartExperience;
+        private bool waitForMovementRelease;
         private SaveService saves;
         private GridView view;
         private GameUI ui;
@@ -54,18 +65,24 @@ namespace CraftMine
         }
         private void Update()
         {
-            if (Screen == ScreenMode.Playing && Model.State.status == RunStatus.Playing) Elapsed += Time.unscaledDeltaTime;
+            if (Screen == ScreenMode.Playing && !ConfirmationOpen && Model.State.status == RunStatus.Playing) Elapsed += Time.unscaledDeltaTime;
             if (Message != null && Time.unscaledTime > messageUntil) Message = null;
             if (Input.GetKeyDown(KeyCode.Escape))
             {
-                if (Screen == ScreenMode.Playing && !Busy) Show(ScreenMode.Paused);
-                else if (Screen == ScreenMode.Paused) Show(ScreenMode.Playing);
-                else if (Screen != ScreenMode.Playing && Screen != ScreenMode.Results) Show(ScreenMode.Home);
+                HandleEscape();
+                return;
             }
-            if (Screen != ScreenMode.Playing || Busy) return;
-            if (Input.GetKeyDown(KeyCode.R)) { StartRoom(RoomIndex); return; }
+            if (Screen != ScreenMode.Playing || Busy || ConfirmationOpen) return;
+            if (Input.GetKeyDown(KeyCode.R)) { RequestRestart(); return; }
             if (Input.GetKeyDown(KeyCode.Z) || Input.GetKeyDown(KeyCode.Backspace)) { Undo(); return; }
-            if (Input.GetKeyDown(KeyCode.Space)) { ShowDanger = !ShowDanger; view.RefreshOverlays(); }
+            if (Input.GetKeyDown(KeyCode.Space)) ToggleDanger();
+            if (waitForMovementRelease)
+            {
+                waitForMovementRelease = Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.S) ||
+                    Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow) ||
+                    Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) || Input.GetKey(KeyCode.E);
+                return;
+            }
             if (Model.State.status != RunStatus.Playing || Time.unscaledTime < nextAction) return;
             Vector2Int direction = Vector2Int.zero;
             if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) direction = Vector2Int.up;
@@ -76,17 +93,65 @@ namespace CraftMine
             else if (Input.GetKey(KeyCode.E)) PerformMine();
         }
         public void PerformStep(Vector2Int direction)
-        { if (!Busy && Screen == ScreenMode.Playing) Act(Model.Step(direction)); }
+        { if (!Busy && !ConfirmationOpen && Screen == ScreenMode.Playing) Act(Model.Step(direction)); }
         public void PerformMine()
-        { if (!Busy && Screen == ScreenMode.Playing) Act(Model.Mine()); }
+        { if (!Busy && !ConfirmationOpen && Screen == ScreenMode.Playing) Act(Model.Mine()); }
+        public void HandleEscape()
+        {
+            if (ConfirmationOpen) { CancelDiscard(); return; }
+            if (Busy) return;
+            if (Screen == ScreenMode.Playing) Show(ScreenMode.Paused);
+            else if (Screen == ScreenMode.Paused) Show(ScreenMode.Playing);
+            else if (Screen == ScreenMode.Settings) Show(SettingsReturnScreen);
+            else if (Screen != ScreenMode.Results) RequestHome();
+        }
         public void Show(ScreenMode screen)
         {
-            if (Busy) return;
+            if (Busy || ConfirmationOpen || (Model != null && Model.State.status == RunStatus.Won && !Banked)) return;
+            if (screen == ScreenMode.Home) { RequestHome(); return; }
+            if (screen == ScreenMode.Settings) SettingsReturnScreen = Screen == ScreenMode.Paused ? ScreenMode.Paused : ScreenMode.Home;
+            SetScreen(screen);
+        }
+        private void SetScreen(ScreenMode screen)
+        {
             Screen = screen;
+            if (screen == ScreenMode.Playing) waitForMovementRelease = true;
             if (screen == ScreenMode.Home || screen == ScreenMode.Rooms || screen == ScreenMode.Workshop || screen == ScreenMode.Settings)
                 view.SetMenuAppearance(true);
             else view.SetMenuAppearance(false);
             ui.Rebuild();
+        }
+        public void ToggleDanger()
+        {
+            if (Busy || ConfirmationOpen || Screen != ScreenMode.Playing) return;
+            ShowDanger = !ShowDanger; view.RefreshOverlays(); ui.Refresh();
+        }
+        public void RequestRestart() => RequestDiscard(DiscardAction.Restart);
+        public void RequestHome() => RequestDiscard(DiscardAction.Home);
+        private void RequestDiscard(DiscardAction action)
+        {
+            if (Busy || ConfirmationOpen || (Model != null && Model.State.status == RunStatus.Won && !Banked)) return;
+            if (AttemptVisible && !Banked && Model != null && Model.State.moves > 0)
+            { PendingDiscard = action; ui.OpenConfirmation(); return; }
+            CompleteDiscard(action);
+        }
+        public void CancelDiscard()
+        {
+            if (!ConfirmationOpen) return;
+            PendingDiscard = DiscardAction.None;
+            waitForMovementRelease = true;
+            ui.CloseConfirmation();
+        }
+        public void ConfirmDiscard()
+        {
+            if (!ConfirmationOpen) return;
+            var action = PendingDiscard; PendingDiscard = DiscardAction.None;
+            ui.CloseConfirmation(); CompleteDiscard(action);
+        }
+        private void CompleteDiscard(DiscardAction action)
+        {
+            if (action == DiscardAction.Restart) StartRoom(RoomIndex);
+            else if (action == DiscardAction.Home) { Message = null; SetScreen(ScreenMode.Home); }
         }
         private void StartRoomPreview()
         {
@@ -95,18 +160,21 @@ namespace CraftMine
         }
         public void StartRoom(int index)
         {
-            if (index < 0 || index >= Rooms.Length || index >= Profile.unlockedRooms) return;
+            if (ConfirmationOpen || (Model != null && Model.State.status == RunStatus.Won && !Banked) ||
+                index < 0 || index >= Rooms.Length || index >= Profile.unlockedRooms) return;
             if (actionRoutine != null) StopCoroutine(actionRoutine);
             Busy = false; RoomIndex = index; Banked = false; ShowDanger = false; Elapsed = 0;
+            attemptStartExperience = Profile.totalExperience;
             Model = new GameModel(Rooms[index], Balance, Profile); Screen = ScreenMode.Playing;
+            waitForMovementRelease = true;
             view.LoadBoard(); view.SetMenuAppearance(false); ui.Rebuild();
             Message = null; nextAction = Time.unscaledTime + .15f;
             Notify(Rooms[index].lesson, 8);
         }
         public void Undo()
         {
-            if (Busy || Banked) return;
-            if (Model.Undo()) { Screen = ScreenMode.Playing; view.LoadBoard(); ui.Rebuild(); Notify("Ход отменён. Опыт и добыча восстановлены."); }
+            if (!CanUndo) return;
+            if (Model.Undo()) { Screen = ScreenMode.Playing; waitForMovementRelease = true; view.LoadBoard(); view.SetMenuAppearance(false); ui.Rebuild(); Notify("Ход отменён. Опыт и добыча восстановлены."); }
             else Notify("Отмена недоступна. Осталось: " + Model.UndoRemaining);
         }
         private void Act(ActionResult result)
@@ -114,6 +182,7 @@ namespace CraftMine
             nextAction = Time.unscaledTime + .12f;
             if (!result.accepted) { if (result.message != null) Notify(result.message); view.RefreshOverlays(); return; }
             Busy = true;
+            ui.Refresh();
             if (result.dug > 0) Play(digSound);
             actionRoutine = StartCoroutine(Animate(result));
         }
@@ -146,11 +215,17 @@ namespace CraftMine
             if (candidate.bestMoves[RoomIndex] == 0 || Model.State.moves < candidate.bestMoves[RoomIndex]) candidate.bestMoves[RoomIndex] = Model.State.moves;
             if (candidate.bestSeconds[RoomIndex] == 0 || Elapsed < candidate.bestSeconds[RoomIndex]) candidate.bestSeconds[RoomIndex] = Elapsed;
             candidate.unlockedRooms = Math.Max(candidate.unlockedRooms, Math.Min(10, RoomIndex+2));
-            if (saves.Save(candidate)) { Profile = candidate; Banked = true; }
+            string previousSaveNotice = saves.Notice;
+            if (saves.Save(candidate))
+            {
+                Profile = candidate; Banked = true;
+                if (previousSaveNotice != null && Message == previousSaveNotice) Message = null;
+            }
             else Notify(saves.Notice, 30);
         }
         public void Craft(int recipeIndex)
         {
+            if (Screen != ScreenMode.Workshop || ConfirmationOpen || Busy || recipeIndex < 0 || recipeIndex >= Recipes.Length) return;
             var recipe = Recipes[recipeIndex];
             string requirement = Crafting.Requirement(Profile, Balance, recipe);
             if (requirement != null) { Notify(requirement); return; }
@@ -162,9 +237,11 @@ namespace CraftMine
         }
         public void SetVolume(float volume)
         {
+            if (Screen != ScreenMode.Settings || ConfirmationOpen || Busy) return;
             var candidate = SaveService.Copy(Profile); candidate.volume = volume;
             if (saves.Save(candidate)) Profile = candidate;
             else Notify(saves.Notice, 12);
+            ui.Refresh();
         }
         public void Notify(string message, float seconds = 3)
         { Message = message; messageUntil = Time.unscaledTime + seconds; }

@@ -141,6 +141,67 @@ namespace CraftMineTests
             for (int i = 0; i < 3; i++) { m.Step(Vector2Int.right); Assert.IsTrue(m.Undo()); }
             m.Step(Vector2Int.right); Assert.IsFalse(m.Undo()); Assert.AreEqual(0,m.UndoRemaining);
         }
+        [Test] public void CanUndoNeedsAnAcceptedAction()
+        {
+            var m = Make(new PlayerProfile(),"#####","#HH.#","#@#.#","#####");
+            Assert.IsFalse(m.CanUndo);
+            Assert.IsFalse(m.Step(Vector2Int.right).accepted);
+            Assert.IsFalse(m.CanUndo);
+            Assert.IsTrue(m.Step(Vector2Int.up).accepted);
+            Assert.IsTrue(m.CanUndo);
+        }
+        [Test] public void CanUndoTracksHistoryAndRemainingBudget()
+        {
+            var m = Basic();
+            Assert.IsFalse(m.CanUndo);
+            for (int i = 0; i < 3; i++)
+            {
+                Assert.IsTrue(m.Step(Vector2Int.right).accepted);
+                Assert.IsTrue(m.CanUndo);
+                Assert.IsTrue(m.Undo());
+                Assert.IsFalse(m.CanUndo); // No history, even though the first two Undos leave budget.
+            }
+            Assert.IsTrue(m.Step(Vector2Int.right).accepted);
+            Assert.IsFalse(m.CanUndo); // History exists, but the budget is exhausted.
+        }
+        [Test] public void CanUndoRecoversAfterBoulderLoss()
+        {
+            var m = Make(new PlayerProfile(),"#####","# O #","# . #","# @H#","#####");
+            m.Step(Vector2Int.up);
+            Assert.AreEqual(RunStatus.Lost,m.State.status);
+            Assert.IsTrue(m.CanUndo);
+            Assert.IsTrue(m.Undo());
+            Assert.AreEqual(RunStatus.Playing,m.State.status);
+            Assert.IsFalse(m.CanUndo);
+        }
+        [Test] public void CanUndoCannotRevokeVictoryWithHistoryRemaining()
+        {
+            var m = Make(new PlayerProfile(),"######","#@HH #","######");
+            m.Step(Vector2Int.right); Assert.IsTrue(m.CanUndo);
+            m.Step(Vector2Int.right); Assert.AreEqual(RunStatus.Won,m.State.status);
+            Assert.IsFalse(m.CanUndo); Assert.IsFalse(m.Undo());
+        }
+        [Test] public void CanUndoRecoversFromTrappedStrictTrail()
+        {
+            var m = Make(new PlayerProfile(),"#######","#@.##H#","#######"); room.strictTrail = true;
+            Assert.IsTrue(m.Step(Vector2Int.right).accepted);
+            Assert.AreEqual(RunStatus.Trapped,m.State.status);
+            Assert.IsTrue(m.CanUndo); Assert.IsTrue(m.Undo());
+            Assert.AreEqual(RunStatus.Playing,m.State.status);
+        }
+        [TestCase(1280,720,32,132,816,424)]
+        [TestCase(1600,900,40,165,1020,530)]
+        [TestCase(1920,1080,48,198,1224,636)]
+        [TestCase(1600,1000,40,215,1020,530)]
+        [TestCase(2560,1080,368,198,1224,636)]
+        public void BoardViewportMatchesLetterboxedInterface(int width,int height,float x,float y,float w,float h)
+        {
+            var viewport = InterfaceLayout.BoardPixels(width,height);
+            Assert.That(viewport.x,Is.EqualTo(x).Within(.01f));
+            Assert.That(viewport.y,Is.EqualTo(y).Within(.01f));
+            Assert.That(viewport.width,Is.EqualTo(w).Within(.01f));
+            Assert.That(viewport.height,Is.EqualTo(h).Within(.01f));
+        }
         [Test] public void StrictTrailPreventsReturning()
         {
             var m = Basic(); room.strictTrail = true; m.Step(Vector2Int.right);
