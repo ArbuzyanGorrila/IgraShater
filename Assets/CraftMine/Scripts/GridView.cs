@@ -205,9 +205,7 @@ namespace CraftMine
         {
             if (game.Model == null) return;
             lastWidth = Screen.width; lastHeight = Screen.height;
-            float scale = Mathf.Min(Screen.width/1600f,Screen.height/900f);
-            float marginX = (Screen.width-1600*scale)/2, marginY = (Screen.height-900*scale)/2;
-            boardCamera.pixelRect = new Rect(marginX+40*scale,marginY+165*scale,1020*scale,530*scale);
+            boardCamera.pixelRect = InterfaceLayout.BoardPixels(Screen.width, Screen.height);
             boardCamera.orthographicSize = Mathf.Max(game.Model.Height/2f+.3f,(game.Model.Width/2f+.3f)/boardCamera.aspect);
             boardCamera.transform.position = new Vector3(game.Model.Width/2f,game.Model.Height/2f,-10);
         }

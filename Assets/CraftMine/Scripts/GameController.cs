@@ -27,6 +27,8 @@ namespace CraftMine
         public const int TutorialPageCount = 4;
         private bool tutorialIntroduction;
         private float messageUntil, nextAction;
+        private int attemptStartExperience;
+        private bool waitForMovementRelease;
         private SaveService saves;
         private GridView view;
         private GameUI ui;
@@ -59,7 +61,7 @@ namespace CraftMine
         }
         private void Update()
         {
-            if (Screen == ScreenMode.Playing && Model.State.status == RunStatus.Playing) Elapsed += Time.unscaledDeltaTime;
+            if (Screen == ScreenMode.Playing && !ConfirmationOpen && Model.State.status == RunStatus.Playing) Elapsed += Time.unscaledDeltaTime;
             if (Message != null && Time.unscaledTime > messageUntil) Message = null;
             if (Input.GetKeyDown(KeyCode.F1))
             {
@@ -74,8 +76,8 @@ namespace CraftMine
                 else if (Screen == ScreenMode.Paused) Show(ScreenMode.Playing);
                 else if (Screen != ScreenMode.Playing && Screen != ScreenMode.Results) Show(ScreenMode.Home);
             }
-            if (Screen != ScreenMode.Playing || Busy) return;
-            if (Input.GetKeyDown(KeyCode.R)) { StartRoom(RoomIndex); return; }
+            if (Screen != ScreenMode.Playing || Busy || ConfirmationOpen) return;
+            if (Input.GetKeyDown(KeyCode.R)) { RequestRestart(); return; }
             if (Input.GetKeyDown(KeyCode.Z) || Input.GetKeyDown(KeyCode.Backspace)) { Undo(); return; }
             if (Input.GetKeyDown(KeyCode.Space)) ToggleDanger();
             if (Model.State.status != RunStatus.Playing || Time.unscaledTime < nextAction) return;
@@ -141,12 +143,60 @@ namespace CraftMine
         }
         public void Show(ScreenMode screen)
         {
+            if (ConfirmationOpen) { CancelDiscard(); return; }
             if (Busy) return;
+            if (Screen == ScreenMode.Playing) Show(ScreenMode.Paused);
+            else if (Screen == ScreenMode.Paused) Show(ScreenMode.Playing);
+            else if (Screen == ScreenMode.Settings) Show(SettingsReturnScreen);
+            else if (Screen != ScreenMode.Results) RequestHome();
+        }
+        public void Show(ScreenMode screen)
+        {
+            if (Busy || ConfirmationOpen || (Model != null && Model.State.status == RunStatus.Won && !Banked)) return;
+            if (screen == ScreenMode.Home) { RequestHome(); return; }
+            if (screen == ScreenMode.Settings) SettingsReturnScreen = Screen == ScreenMode.Paused ? ScreenMode.Paused : ScreenMode.Home;
+            SetScreen(screen);
+        }
+        private void SetScreen(ScreenMode screen)
+        {
             Screen = screen;
+            if (screen == ScreenMode.Playing) waitForMovementRelease = true;
             if (screen == ScreenMode.Home || screen == ScreenMode.Rooms || screen == ScreenMode.Workshop || screen == ScreenMode.Settings)
                 view.SetMenuAppearance(true);
             else view.SetMenuAppearance(false);
             ui.Rebuild();
+        }
+        public void ToggleDanger()
+        {
+            if (Busy || ConfirmationOpen || Screen != ScreenMode.Playing) return;
+            ShowDanger = !ShowDanger; view.RefreshOverlays(); ui.Refresh();
+        }
+        public void RequestRestart() => RequestDiscard(DiscardAction.Restart);
+        public void RequestHome() => RequestDiscard(DiscardAction.Home);
+        private void RequestDiscard(DiscardAction action)
+        {
+            if (Busy || ConfirmationOpen || (Model != null && Model.State.status == RunStatus.Won && !Banked)) return;
+            if (AttemptVisible && !Banked && Model != null && Model.State.moves > 0)
+            { PendingDiscard = action; ui.OpenConfirmation(); return; }
+            CompleteDiscard(action);
+        }
+        public void CancelDiscard()
+        {
+            if (!ConfirmationOpen) return;
+            PendingDiscard = DiscardAction.None;
+            waitForMovementRelease = true;
+            ui.CloseConfirmation();
+        }
+        public void ConfirmDiscard()
+        {
+            if (!ConfirmationOpen) return;
+            var action = PendingDiscard; PendingDiscard = DiscardAction.None;
+            ui.CloseConfirmation(); CompleteDiscard(action);
+        }
+        private void CompleteDiscard(DiscardAction action)
+        {
+            if (action == DiscardAction.Restart) StartRoom(RoomIndex);
+            else if (action == DiscardAction.Home) { Message = null; SetScreen(ScreenMode.Home); }
         }
         private void StartRoomPreview()
         {
@@ -161,7 +211,9 @@ namespace CraftMine
             Tutorial.Stop(); if (practice) Tutorial.Begin();
             if (actionRoutine != null) StopCoroutine(actionRoutine);
             Busy = false; RoomIndex = index; Banked = false; ShowDanger = false; Elapsed = 0;
+            attemptStartExperience = Profile.totalExperience;
             Model = new GameModel(Rooms[index], Balance, Profile); Screen = ScreenMode.Playing;
+            waitForMovementRelease = true;
             view.LoadBoard(); view.SetMenuAppearance(false); ui.Rebuild();
             Message = null; nextAction = Time.unscaledTime + .15f;
             Notify(Rooms[index].lesson, 8);
@@ -181,6 +233,7 @@ namespace CraftMine
             nextAction = Time.unscaledTime + .12f;
             if (!result.accepted) { if (result.message != null) Notify(result.message); view.RefreshOverlays(); return; }
             Busy = true;
+            ui.Refresh();
             if (result.dug > 0) Play(digSound);
             actionRoutine = StartCoroutine(Animate(result));
         }
@@ -213,11 +266,17 @@ namespace CraftMine
             if (candidate.bestMoves[RoomIndex] == 0 || Model.State.moves < candidate.bestMoves[RoomIndex]) candidate.bestMoves[RoomIndex] = Model.State.moves;
             if (candidate.bestSeconds[RoomIndex] == 0 || Elapsed < candidate.bestSeconds[RoomIndex]) candidate.bestSeconds[RoomIndex] = Elapsed;
             candidate.unlockedRooms = Math.Max(candidate.unlockedRooms, Math.Min(10, RoomIndex+2));
-            if (saves.Save(candidate)) { Profile = candidate; Banked = true; }
+            string previousSaveNotice = saves.Notice;
+            if (saves.Save(candidate))
+            {
+                Profile = candidate; Banked = true;
+                if (previousSaveNotice != null && Message == previousSaveNotice) Message = null;
+            }
             else Notify(saves.Notice, 30);
         }
         public void Craft(int recipeIndex)
         {
+            if (Screen != ScreenMode.Workshop || ConfirmationOpen || Busy || recipeIndex < 0 || recipeIndex >= Recipes.Length) return;
             var recipe = Recipes[recipeIndex];
             string requirement = Crafting.Requirement(Profile, Balance, recipe);
             if (requirement != null) { Notify(requirement); return; }
@@ -229,9 +288,11 @@ namespace CraftMine
         }
         public void SetVolume(float volume)
         {
+            if (Screen != ScreenMode.Settings || ConfirmationOpen || Busy) return;
             var candidate = SaveService.Copy(Profile); candidate.volume = volume;
             if (saves.Save(candidate)) Profile = candidate;
             else Notify(saves.Notice, 12);
+            ui.Refresh();
         }
         public void Notify(string message, float seconds = 3)
         { Message = message; messageUntil = Time.unscaledTime + seconds; }
