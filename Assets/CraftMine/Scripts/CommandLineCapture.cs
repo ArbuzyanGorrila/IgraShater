@@ -47,27 +47,32 @@ namespace CraftMine
             // Excavate ore ahead of the first-room route, then Undo. This exercises presentation and rollback.
             game.PerformMine();
             Require(game.Busy && !game.CanUndo,"Actions were not blocked during animation");
-            Require(!FindButton("Перезапустить · R").IsInteractable(),"Restart is available during animation");
+            game.RequestRestart(); Require(!game.ConfirmationOpen,"Restart is available during animation");
             while (game.Busy) yield return null;
             Require(game.CanUndo,"Undo did not become available after mining");
             var before = game.Model.State; float elapsed = game.Elapsed;
             game.RequestRestart(); Require(game.ConfirmationOpen,"Restart did not request confirmation");
             Require(FindButton("Остаться · Esc").gameObject == UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject,
                 "Discard confirmation did not focus the safe action");
-            Require(!FindButton("Отменить ход · Z").IsInteractable(),"Modal did not block underlying buttons");
-            game.PerformStep(Vector2Int.right); game.PerformMine(); game.ToggleDanger(); game.Undo();
+            foreach (var button in FindObjectsOfType<UnityEngine.UI.Button>())
+                if (!button.transform.IsChildOf(FindButton("Остаться · Esc").transform.parent))
+                    Require(!button.IsInteractable(),"Modal did not block underlying buttons");
+            game.PerformStep(Vector2Int.right); game.PerformMine(); game.ToggleDanger(); game.Undo(); game.OpenTutorial(); game.StartRoom(0);
             yield return new WaitForSecondsRealtime(.2f);
             Require(game.Elapsed == elapsed && ReferenceEquals(before,game.Model.State) && !game.ShowDanger,
                 "Discard confirmation changed the attempt or timer");
             yield return Capture("confirm-restart-1600",directory);
             game.HandleEscape(); Require(!game.ConfirmationOpen && ReferenceEquals(before,game.Model.State),"Esc did not cancel discard");
-            Require(FindButton("Отменить ход · Z").IsInteractable(),"Undo did not recover after closing modal");
+            Require(game.CanUndo,"Undo did not recover after closing modal");
             game.Show(ScreenMode.Paused); elapsed = game.Elapsed;
             yield return Capture("pause-1600",directory);
             UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(FindButton("Звук и управление").gameObject);
             game.Show(ScreenMode.Settings); game.SetVolume(.25f);
             yield return Capture("settings-paused-1600",directory);
             Require(game.Elapsed == elapsed && Mathf.Abs(game.Profile.volume-.25f) < .001f,"Paused settings changed time or failed to save volume");
+            game.OpenTutorial(); game.CloseTutorial();
+            Require(game.Screen == ScreenMode.Settings && game.SettingsReturnScreen == ScreenMode.Paused,
+                "Guide lost the paused settings return screen");
             game.HandleEscape(); Require(game.Screen == ScreenMode.Paused,"Settings did not return to pause");
             Require(UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject == FindButton("Звук и управление").gameObject,
                 "Settings did not restore pause focus");
@@ -119,13 +124,21 @@ namespace CraftMine
             for (int i = 0; i < 5; i++)
             { game.PerformStep(Vector2Int.right); while (game.Busy) yield return null; }
             yield return Capture("room-updated-1920",directory);
-            game.Show(ScreenMode.Home); yield return Capture("home-return-1920",directory);
+            game.Show(ScreenMode.Home); if (game.ConfirmationOpen) game.ConfirmDiscard();
+            yield return Capture("home-return-1920",directory);
             game.OpenTutorial(); game.StartTraining();
             if (game.Screen != ScreenMode.Playing || !game.Tutorial.Active || game.RoomIndex != 0)
                 throw new Exception("Practice could not be replayed from Home");
             game.OpenTutorial(); game.CloseTutorial(true);
             if (game.Tutorial.Active) throw new Exception("Practice could not be dismissed");
-            Debug.Log("CRAFTMINE_RUNTIME_QA_PASSED: tutorial introduction, pages, pause, preference, replay, skip, gameplay, Undo, victory, single banking, save reload and screens at three resolutions.");
+            foreach (var size in new[] { new Vector2Int(1366,768), new Vector2Int(1024,768) })
+            {
+                Screen.SetResolution(size.x,size.y,false); yield return new WaitForSecondsRealtime(.5f);
+                yield return Capture("gameplay-"+size.x+"x"+size.y,directory);
+                game.Show(ScreenMode.Paused); yield return Capture("pause-"+size.x+"x"+size.y,directory);
+                game.Show(ScreenMode.Playing);
+            }
+            Debug.Log("CRAFTMINE_RUNTIME_QA_PASSED: gameplay HUD without sidebar, modal guards, focus, tutorial, pause/settings, Undo, victory, single banking, save reload and five resolutions.");
             File.WriteAllText(System.IO.Path.Combine(directory,"runtime-passed.txt"),"Runtime gameplay and save checks passed.");
             Application.Quit(0);
         }
@@ -142,6 +155,22 @@ namespace CraftMine
             yield return new WaitForSecondsRealtime(.25f);
             yield return new WaitForEndOfFrame();
             var game = GetComponent<GameController>();
+            var content = GameObject.Find("Screen content");
+            Require(content != null && content.GetComponent<CanvasGroup>() != null,"Screen rebuild destroyed the content root");
+            if (game.Screen == ScreenMode.Playing)
+            {
+                foreach (var rect in content.GetComponentsInChildren<RectTransform>())
+                    Require(!(rect.anchoredPosition == new Vector2(1100,-40) && rect.sizeDelta == new Vector2(460,765)),
+                        "Gameplay still contains the right sidebar");
+                foreach (var button in content.GetComponentsInChildren<UnityEngine.UI.Button>())
+                    Require(button.name == "Пропустить шаг","Gameplay contains a menu action: " + button.name);
+                Rect viewport = Camera.main.pixelRect, expected = InterfaceLayout.BoardPixels(Screen.width,Screen.height,true);
+                Require(Mathf.Abs(viewport.center.x-Screen.width/2f) < 1 && Mathf.Abs(viewport.width-expected.width) < 1,
+                    "Gameplay camera is not centered in the shared HUD layout");
+            }
+            if (game.Screen == ScreenMode.Settings)
+                Require(FindButton("25%").GetComponentInChildren<UnityEngine.UI.Text>().text.Contains("Выбрано"),
+                    "Selected volume has no visual feedback");
             if (game.Screen == ScreenMode.Tutorial || (game.Screen == ScreenMode.Playing && game.Tutorial.Active))
             {
                 Canvas.ForceUpdateCanvases();
