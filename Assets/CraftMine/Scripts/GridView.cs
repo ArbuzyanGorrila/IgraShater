@@ -21,6 +21,7 @@ namespace CraftMine
         private Sprite hero;
         private bool menu;
         private int lastWidth, lastHeight;
+        private bool gameplayViewport;
         public static readonly Color[] OreColors = {
             new Color(1f,.65f,.35f), new Color(.7f,.84f,.94f), new Color(1f,.87f,.2f), new Color(.25f,.95f,1f)
         };
@@ -199,13 +200,14 @@ namespace CraftMine
         { menu = enabled; RefreshOverlays(); }
         private void LateUpdate()
         {
-            if (lastWidth != Screen.width || lastHeight != Screen.height) FitCamera();
+            if (lastWidth != Screen.width || lastHeight != Screen.height || gameplayViewport != (game.Screen == ScreenMode.Playing)) FitCamera();
         }
         private void FitCamera()
         {
             if (game.Model == null) return;
             lastWidth = Screen.width; lastHeight = Screen.height;
-            boardCamera.pixelRect = InterfaceLayout.BoardPixels(Screen.width, Screen.height);
+            gameplayViewport = game.Screen == ScreenMode.Playing;
+            boardCamera.pixelRect = InterfaceLayout.BoardPixels(Screen.width, Screen.height,gameplayViewport);
             boardCamera.orthographicSize = Mathf.Max(game.Model.Height/2f+.3f,(game.Model.Width/2f+.3f)/boardCamera.aspect);
             boardCamera.transform.position = new Vector3(game.Model.Width/2f,game.Model.Height/2f,-10);
         }

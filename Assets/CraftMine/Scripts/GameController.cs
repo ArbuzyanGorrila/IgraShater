@@ -5,6 +5,7 @@ using UnityEngine;
 namespace CraftMine
 {
     public enum ScreenMode { Home, Rooms, Workshop, Playing, Paused, Results, Settings, Tutorial }
+    public enum DiscardAction { None, Restart, Home }
 
     public sealed class GameController : MonoBehaviour
     {
@@ -21,6 +22,21 @@ namespace CraftMine
         public float Elapsed { get; private set; }
         public string Message { get; private set; }
         public int EarnedStars { get; private set; }
+        public DiscardAction PendingDiscard { get; private set; }
+        public bool ConfirmationOpen => PendingDiscard != DiscardAction.None;
+        public ScreenMode SettingsReturnScreen { get; private set; } = ScreenMode.Home;
+        public bool AttemptVisible
+        {
+            get
+            {
+                var screen = Screen == ScreenMode.Tutorial ? TutorialReturnScreen : Screen;
+                return screen == ScreenMode.Playing || screen == ScreenMode.Paused || screen == ScreenMode.Results ||
+                    (screen == ScreenMode.Settings && SettingsReturnScreen == ScreenMode.Paused);
+            }
+        }
+        public bool CanUndo => !Busy && !ConfirmationOpen && !Banked && Model != null && Model.CanUndo &&
+            (Screen == ScreenMode.Playing || Screen == ScreenMode.Paused || Screen == ScreenMode.Results);
+        public int AttemptExperience => Model == null ? 0 : Math.Max(0, Model.State.experience - attemptStartExperience);
         public TutorialProgress Tutorial { get; } = new TutorialProgress();
         public int TutorialPage { get; private set; }
         public ScreenMode TutorialReturnScreen { get; private set; }
@@ -49,12 +65,12 @@ namespace CraftMine
             saves = new SaveService(captureDirectory == null ? null : System.IO.Path.Combine(captureDirectory,"qa-profile.json"));
             Profile = saves.Load();
             view = gameObject.AddComponent<GridView>(); view.Initialize(this);
+            StartRoomPreview();
             ui = gameObject.AddComponent<GameUI>(); ui.Initialize(this);
             audioSource = gameObject.AddComponent<AudioSource>();
             audioSource.playOnAwake = false;
             digSound = Tone(130, .08f, true); heartSound = Tone(740, .16f, false);
             rockSound = Tone(70, .2f, true); levelSound = Tone(1100, .28f, false);
-            StartRoomPreview();
             if (saves.Notice != null) Notify(saves.Notice, 12);
             Application.targetFrameRate = 60;
             if (captureDirectory != null) gameObject.AddComponent<CommandLineCapture>();
@@ -71,15 +87,21 @@ namespace CraftMine
             }
             if (Input.GetKeyDown(KeyCode.Escape))
             {
-                if (Screen == ScreenMode.Tutorial) { CloseTutorial(); return; }
-                if (Screen == ScreenMode.Playing && !Busy) Show(ScreenMode.Paused);
-                else if (Screen == ScreenMode.Paused) Show(ScreenMode.Playing);
-                else if (Screen != ScreenMode.Playing && Screen != ScreenMode.Results) Show(ScreenMode.Home);
+                HandleEscape();
+                return;
             }
-            if (Screen != ScreenMode.Playing || Busy || ConfirmationOpen) return;
+            if ((Screen != ScreenMode.Playing && Screen != ScreenMode.Paused) || Busy || ConfirmationOpen) return;
             if (Input.GetKeyDown(KeyCode.R)) { RequestRestart(); return; }
             if (Input.GetKeyDown(KeyCode.Z) || Input.GetKeyDown(KeyCode.Backspace)) { Undo(); return; }
             if (Input.GetKeyDown(KeyCode.Space)) ToggleDanger();
+            if (Screen != ScreenMode.Playing) return;
+            if (waitForMovementRelease)
+            {
+                waitForMovementRelease = Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.S) ||
+                    Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow) ||
+                    Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) || Input.GetKey(KeyCode.E);
+                return;
+            }
             if (Model.State.status != RunStatus.Playing || Time.unscaledTime < nextAction) return;
             Vector2Int direction = Vector2Int.zero;
             if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) direction = Vector2Int.up;
@@ -91,22 +113,18 @@ namespace CraftMine
         }
         public void PerformStep(Vector2Int direction)
         {
-            if (Busy || Screen != ScreenMode.Playing) return;
+            if (Busy || ConfirmationOpen || Screen != ScreenMode.Playing) return;
             var result = Model.Step(direction); Tutorial.ObserveAction(result, true); Act(result);
         }
         public void PerformMine()
         {
-            if (Busy || Screen != ScreenMode.Playing) return;
+            if (Busy || ConfirmationOpen || Screen != ScreenMode.Playing) return;
             var result = Model.Mine(); Tutorial.ObserveAction(result, false); Act(result);
-        }
-        public void ToggleDanger()
-        {
-            if (Busy || Screen != ScreenMode.Playing) return;
-            ShowDanger = !ShowDanger; Tutorial.ObserveDanger(ShowDanger); view.RefreshOverlays();
         }
         public void OpenTutorial()
         {
-            if (Busy || Screen == ScreenMode.Tutorial) return;
+            if (Busy || ConfirmationOpen || Screen == ScreenMode.Tutorial ||
+                (Model != null && Model.State.status == RunStatus.Won && !Banked)) return;
             TutorialReturnScreen = Screen; TutorialPage = 0; tutorialIntroduction = false;
             Show(ScreenMode.Tutorial);
         }
@@ -137,14 +155,15 @@ namespace CraftMine
         }
         public void SkipTutorialStep()
         {
-            if (Screen != ScreenMode.Playing || Busy) return;
+            if (Screen != ScreenMode.Playing || Busy || ConfirmationOpen || !Tutorial.Active) return;
             if (Tutorial.Step < 4) Tutorial.SkipStep(); else Tutorial.Stop();
             ui.Rebuild();
         }
-        public void Show(ScreenMode screen)
+        public void HandleEscape()
         {
             if (ConfirmationOpen) { CancelDiscard(); return; }
             if (Busy) return;
+            if (Screen == ScreenMode.Tutorial) { CloseTutorial(); return; }
             if (Screen == ScreenMode.Playing) Show(ScreenMode.Paused);
             else if (Screen == ScreenMode.Paused) Show(ScreenMode.Playing);
             else if (Screen == ScreenMode.Settings) Show(SettingsReturnScreen);
@@ -154,7 +173,8 @@ namespace CraftMine
         {
             if (Busy || ConfirmationOpen || (Model != null && Model.State.status == RunStatus.Won && !Banked)) return;
             if (screen == ScreenMode.Home) { RequestHome(); return; }
-            if (screen == ScreenMode.Settings) SettingsReturnScreen = Screen == ScreenMode.Paused ? ScreenMode.Paused : ScreenMode.Home;
+            if (screen == ScreenMode.Settings && Screen != ScreenMode.Tutorial)
+                SettingsReturnScreen = Screen == ScreenMode.Paused ? ScreenMode.Paused : ScreenMode.Home;
             SetScreen(screen);
         }
         private void SetScreen(ScreenMode screen)
@@ -168,8 +188,8 @@ namespace CraftMine
         }
         public void ToggleDanger()
         {
-            if (Busy || ConfirmationOpen || Screen != ScreenMode.Playing) return;
-            ShowDanger = !ShowDanger; view.RefreshOverlays(); ui.Refresh();
+            if (Busy || ConfirmationOpen || (Screen != ScreenMode.Playing && Screen != ScreenMode.Paused)) return;
+            ShowDanger = !ShowDanger; Tutorial.ObserveDanger(ShowDanger); view.RefreshOverlays(); ui.Refresh();
         }
         public void RequestRestart() => RequestDiscard(DiscardAction.Restart);
         public void RequestHome() => RequestDiscard(DiscardAction.Home);
@@ -205,7 +225,8 @@ namespace CraftMine
         }
         public void StartRoom(int index, bool training = false)
         {
-            if (index < 0 || index >= Rooms.Length || index >= Profile.unlockedRooms) return;
+            if (ConfirmationOpen || (Model != null && Model.State.status == RunStatus.Won && !Banked) ||
+                index < 0 || index >= Rooms.Length || index >= Profile.unlockedRooms) return;
             bool introduction = !Profile.tutorialSeen;
             bool practice = index == 0 && (introduction || training || Tutorial.Active);
             Tutorial.Stop(); if (practice) Tutorial.Begin();
@@ -224,8 +245,13 @@ namespace CraftMine
         }
         public void Undo()
         {
-            if (Busy || Banked) return;
-            if (Model.Undo()) { Tutorial.ObserveUndo(); Screen = ScreenMode.Playing; view.LoadBoard(); ui.Rebuild(); Notify("Ход отменён. Опыт и добыча восстановлены."); }
+            if (!CanUndo) return;
+            if (Model.Undo())
+            {
+                Tutorial.ObserveUndo(); Screen = ScreenMode.Playing; waitForMovementRelease = true;
+                view.LoadBoard(); view.SetMenuAppearance(false); ui.Rebuild();
+                Notify("Ход отменён. Опыт и добыча восстановлены.");
+            }
             else Notify("Отмена недоступна. Осталось: " + Model.UndoRemaining);
         }
         private void Act(ActionResult result)

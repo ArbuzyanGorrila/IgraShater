@@ -27,10 +27,14 @@ namespace CraftMine
         private enum ButtonStyle { Secondary, Primary, Destructive }
         private Font body, display;
         private GridView art;
-        private Text counters, xp, character, stats, notice, status, inventory;
+        private Text xp, character, stats, notice, status, runSummary;
+        private readonly Text[] inventoryRows = new Text[4];
         private Text tutorialTask, tutorialHint, tutorialSkip;
         private Image xpFill;
         private float nextRefresh;
+        private float screenEnteredAt, confirmationOpenedAt, xpTarget;
+        private CanvasGroup confirmationFade;
+        private bool animateScreen;
         private readonly Color ink = new Color(.94f,.91f,.86f);
         private readonly Color secondary = new Color(.65f,.72f,.79f);
         private readonly Color amber = new Color(.96f,.73f,.39f);
@@ -80,7 +84,9 @@ namespace CraftMine
             ButtonStyle style = ButtonStyle.Secondary,Transform parent = null)
         {
             var rect = Rect(text,x,y,w,h,parent); var image = rect.gameObject.AddComponent<Image>();
+            rect.pivot = new Vector2(.5f,.5f); rect.anchoredPosition += new Vector2(w/2,-h/2);
             var button = rect.gameObject.AddComponent<Button>(); button.targetGraphic = image;
+            rect.gameObject.AddComponent<ButtonFeedback>();
             var navigation = button.navigation; navigation.mode = Navigation.Mode.None; button.navigation = navigation;
             SetStyle(button,style); button.interactable = enabled;
             var focus = rect.gameObject.AddComponent<Outline>(); focus.effectColor = ink;
@@ -120,12 +126,30 @@ namespace CraftMine
         { var image = Rect("Icon",x,y,size,size).gameObject.AddComponent<Image>(); image.sprite = art.Icon(index); image.color = tint ?? Color.white; image.raycastTarget = false; }
         public void Rebuild()
         {
-            for (int i = stage.childCount-1; i >= 0; i--)
-            { var child = stage.GetChild(i).gameObject; child.SetActive(false); Destroy(child); }
-            counters = xp = character = stats = notice = status = inventory = null; xpFill = null;
+            var eventSystem = EventSystem.current;
+            if (eventSystem != null && eventSystem.currentSelectedGameObject != null &&
+                eventSystem.currentSelectedGameObject.transform.IsChildOf(content))
+                screenFocus[displayedScreen] = eventSystem.currentSelectedGameObject.name;
+            if (eventSystem != null) eventSystem.SetSelectedGameObject(null);
+            // Keep the persistent content root and its input group alive across screens.
+            for (int i = content.childCount-1; i >= 0; i--)
+            { var child = content.GetChild(i).gameObject; child.SetActive(false); Destroy(child); }
+            buttons.Clear(); busyButtons.Clear(); volumeButtons.Clear(); defaultFocus = undoButton = dangerButton = null;
+            heartsCounter = movesCounter = timeCounter = undoCounter = volumeLabel = null;
+            xp = character = stats = notice = status = runSummary = null; xpFill = null;
+            Array.Clear(inventoryRows,0,inventoryRows.Length);
             tutorialTask = tutorialHint = tutorialSkip = null;
-            Plate(1100,40,460,765,panel);
+            bool playing = game.Screen == ScreenMode.Playing;
+            bool changedScreen = displayedScreen != game.Screen;
+            displayedScreen = game.Screen; inputBlockedFrame = Time.frameCount;
+            canvas.scaleFactor = InterfaceLayout.Scale(Screen.width,Screen.height);
+            screenEnteredAt = Time.unscaledTime;
+            animateScreen = !playing && changedScreen;
+            contentInput.alpha = animateScreen ? 0 : 1;
+            content.anchoredPosition = Vector2.zero;
+            if (!playing) Plate(1100,40,460,765,panel);
             if (game.Screen == ScreenMode.Home) Home();
+            else if (playing) Playing();
             else
             {
                 Label("CRAFTMINE",48,46,1000,50,28,amber,true);
@@ -140,11 +164,12 @@ namespace CraftMine
                 else if (game.Screen == ScreenMode.Tutorial) Tutorial();
                 else if (game.Screen == ScreenMode.Results) Results();
                 else if (game.Screen == ScreenMode.Paused) Pause();
-                else Playing();
             }
-            notice = Label("",48,817,1504,50,21,amber);
-            Label("Tab / Shift+Tab — выбор кнопки   Enter — нажать   Esc — назад / пауза",48,869,1504,25,17,secondary);
+            notice = Label("",48,playing ? 868 : 817,1504,playing ? 30 : 46,playing ? 18 : 21,amber);
+            Label(playing ? "WASD / стрелки — шаг    E — копать    Space — опасности    Z — отмена    R — заново    Esc — пауза    F1 — справка" :
+                "Tab / Shift+Tab — выбор кнопки   Enter — нажать   Esc — назад / пауза",48,playing ? 834 : 869,1504,25,17,secondary);
             Refresh();
+            if (xpFill != null) xpFill.rectTransform.sizeDelta = new Vector2(xpTarget,8);
             if (game.Screen != ScreenMode.Playing && eventSystem != null)
             {
                 Button selected = null;
@@ -160,7 +185,11 @@ namespace CraftMine
             Label("Прокладывай путь. Собирай сердечки.\nСтановись сильнее с каждым раскопанным блоком.",48,120,1000,70,25);
             Label("Твоя следующая экспедиция",1130,75,400,55,25);
             CharacterPanel(145,false);
-            Button("Начать забой " + game.Profile.unlockedRooms,1130,565,400,() => game.StartRoom(game.Profile.unlockedRooms-1),true,44);
+            bool completed = Array.TrueForAll(game.Profile.stars,n => n > 0);
+            int next = game.Profile.unlockedRooms-1;
+            Label(game.Rooms[next].title,1130,500,400,52,22,secondary);
+            Button((completed ? "Повторить забой " : "Начать забой ") + (next+1),1130,565,400,
+                () => game.StartRoom(next),true,44,ButtonStyle.Primary);
             Button("Карта шахты",1130,614,400,() => game.Show(ScreenMode.Rooms),true,44);
             Button("Мастерская",1130,663,400,() => game.Show(ScreenMode.Workshop),true,44);
             Button("Как играть  ·  F1",1130,712,400,game.OpenTutorial,true,44);
@@ -182,31 +211,35 @@ namespace CraftMine
         }
         private void Playing()
         {
-            heartsCounter = Label("",48,158,280,34,23,amber);
-            movesCounter = Label("",338,158,210,34,23);
-            timeCounter = Label("",558,158,225,34,23);
-            undoCounter = Label("",793,158,267,34,23);
-            CharacterPanel(74,true);
-            Label("Сохраняется после победы",1130,498,400,30,19,secondary);
-            Button("Отменить ход  ·  Z",1130,540,400,game.Undo,game.Model.UndoRemaining > 0);
-            Button("Перезапустить  ·  R",1130,606,400,() => game.StartRoom(game.RoomIndex));
-            Button("Пауза  ·  Esc",1130,672,400,() => game.Show(ScreenMode.Paused));
+            Label("CRAFTMINE",48,30,800,36,24,amber,true);
+            Label("Забой " + (game.RoomIndex+1) + "  /  " + game.Model.Room.title,48,76,550,38,25);
+            heartsCounter = Label("",620,78,260,34,22,amber);
+            heartsCounter.gameObject.AddComponent<CounterFeedback>();
+            movesCounter = Label("",900,78,160,34,22);
+            timeCounter = Label("",1080,78,185,34,22);
+            undoCounter = Label("",1285,78,267,34,22);
+            undoCounter.gameObject.AddComponent<CounterFeedback>();
+            runSummary = Label("",48,118,1070,28,18,secondary);
+            status = Label("",1120,118,432,28,18,amber);
+            status.alignment = TextAnchor.UpperRight;
+            Plate(48,152,1504,2,buttonSurface);
             if (game.Tutorial.Active)
             {
-                Plate(40,742,1020,66,panel);
-                tutorialTask = Label("",60,748,750,28,21,amber);
-                tutorialHint = Label("",60,779,750,25,18);
-                var skip = Button("Пропустить шаг",828,754,214,game.SkipTutorialStep,true,44);
+                Plate(48,752,1504,72,panel);
+                tutorialTask = Label("",68,760,1200,28,21,amber);
+                tutorialHint = Label("",68,792,1200,25,18);
+                var skip = Button("Пропустить шаг",1306,766,226,game.SkipTutorialStep,true,44);
+                busyButtons.Add(skip);
                 tutorialSkip = skip.GetComponentInChildren<UnityEngine.UI.Text>();
                 tutorialSkip.fontSize = 18;
             }
-            else Label("WASD / стрелки — шаг   E — удар перед собой\nSpace — линии падения   Z — отмена   R — заново",48,765,1000,64,22,secondary);
-            Button("Как играть  ·  F1",1130,733,400,game.OpenTutorial,true,44);
-            status = Label("",1130,782,400,25,18,amber);
+            else
+            {
+                Label("Собери все сердечки. " + TrailRule(),48,766,1504,30,22,amber);
+                Label("Опыт и добыча сохранятся после победы. Кирка, ресурсы и действия доступны в паузе — Esc.",48,802,1504,26,19,secondary);
+            }
         }
         private string TrailRule() => game.Model.Room.strictTrail ? "Не пересекай свой след." : "След показывает маршрут.";
-        private string StarConditions() => "1 звезда — собрать все сердечки.\n2 звезды — не больше " + game.Model.Room.par +
-            " ходов.\n3 звезды — дополнительно без\nотмен и расхода защиты.";
         private void Rooms()
         {
             Plate(40,166,1020,638,panel);
@@ -257,12 +290,17 @@ namespace CraftMine
         private void Pause()
         {
             CharacterPanel(80,true);
-            Label("Экспедиция на паузе",1130,520,400,42,26,amber);
-            Button("Продолжить",1130,563,400,() => game.Show(ScreenMode.Playing));
-            Button("Как играть  ·  F1",1130,623,400,game.OpenTutorial);
-            Button("Перезапустить",1130,683,400,() => game.StartRoom(game.RoomIndex));
-            Button("В меню: добыча не сохранится",1130,743,400,() => game.Show(ScreenMode.Home));
-            Label("Время остановлено. Можно спокойно осмотреть шахту.",48,765,1000,60,22,secondary);
+            Label("Экспедиция на паузе",1130,438,400,40,26,amber);
+            Button("Продолжить · Esc",1130,486,400,() => game.Show(ScreenMode.Playing),h:44,style:ButtonStyle.Primary);
+            undoButton = Button("Отменить ход · Z",1130,536,194,game.Undo,game.CanUndo,44);
+            undoButton.GetComponentInChildren<Text>().fontSize = 18;
+            dangerButton = Button("",1336,536,194,game.ToggleDanger,h:44);
+            Button("Как играть · F1",1130,586,400,game.OpenTutorial,h:44);
+            Button("Звук и управление",1130,636,400,() => game.Show(ScreenMode.Settings),h:44);
+            Button("Перезапустить · R",1130,686,400,game.RequestRestart,h:44,style:ButtonStyle.Destructive);
+            Button("Главное меню",1130,736,400,game.RequestHome,h:44);
+            Label("Время остановлено. " + TrailRule(),48,752,1012,28,22,amber);
+            Label("Звёзды: 1 — победа · 2 — ≤ " + game.Model.Room.par + " ходов · 3 — без отмен и расхода защиты.",48,788,1012,28,19,secondary);
         }
         private void Results()
         {
@@ -313,6 +351,8 @@ namespace CraftMine
             confirmationFocus = EventSystem.current == null ? null : EventSystem.current.currentSelectedGameObject;
             contentInput.interactable = false; contentInput.blocksRaycasts = false;
             confirmation = Rect("Confirm discard",0,0,InterfaceLayout.Width,InterfaceLayout.Height,stage);
+            confirmationFade = confirmation.gameObject.AddComponent<CanvasGroup>(); confirmationFade.alpha = 0;
+            confirmationOpenedAt = Time.unscaledTime;
             var backdrop = confirmation.gameObject.AddComponent<Image>(); backdrop.color = new Color(0,0,0,.78f);
             Plate(420,245,760,390,panel,confirmation);
             Label(game.PendingDiscard == DiscardAction.Restart ? "Начать забой заново?" : "Выйти в главное меню?",452,275,696,48,30,amber,parent:confirmation);
@@ -332,7 +372,7 @@ namespace CraftMine
         {
             if (confirmation == null) return;
             buttons.RemoveAll(b => b.transform.IsChildOf(confirmation));
-            confirmation.gameObject.SetActive(false); Destroy(confirmation.gameObject); confirmation = null;
+            confirmation.gameObject.SetActive(false); Destroy(confirmation.gameObject); confirmation = null; confirmationFade = null;
             contentInput.interactable = true; contentInput.blocksRaycasts = true;
             Refresh();
             if (EventSystem.current != null)
@@ -377,7 +417,7 @@ namespace CraftMine
                 GuideRow("Z / Backspace", "Отменить успешный ход: вернуть камни, добычу и опыт.\nВсего три отмены за попытку; они не пополняются ходами.",355);
                 GuideRow("R", "Начать текущий забой заново.\nНесохранённые опыт и добыча этой попытки пропадут.",454);
                 GuideRow("Esc / F1", "Esc — пауза. F1 — справка; время в ней остановлено.\nEsc или F1 в справке вернут тебя на предыдущий экран.",553);
-                GuideRow("След", "В испытаниях нельзя возвращаться на свой след.\nОб этом написано справа внизу. След не держит камни.",652);
+                GuideRow("След", "В испытаниях нельзя возвращаться на свой след.\nПравило указано над шахтой. След не держит камни.",652);
             }
             else
             {
@@ -394,7 +434,7 @@ namespace CraftMine
             Label("Кнопки меню: мышь\nTab — выбрать, Enter — нажать.\nF1 / Esc — закрыть справку.",1130,435,400,95,22,secondary);
             bool last = game.TutorialPage == GameController.TutorialPageCount-1;
             Button(last ? (game.TutorialReturnScreen == ScreenMode.Playing ? "Понятно — в шахту!" : "Понятно — вернуться") : "Дальше",1130,554,400,
-                () => { if (last) game.CloseTutorial(); else game.ChangeTutorialPage(1); });
+                () => { if (last) game.CloseTutorial(); else game.ChangeTutorialPage(1); },style:ButtonStyle.Primary);
             Button("Назад",1130,617,400,() => game.ChangeTutorialPage(-1),game.TutorialPage > 0);
             Button(game.Tutorial.Active ? "Играть без подсказок" : "Закрыть справку",1130,680,400,() => game.CloseTutorial(true));
             if (game.TutorialReturnScreen == ScreenMode.Home)
@@ -410,7 +450,10 @@ namespace CraftMine
             int required = game.Balance.Threshold(level+1)-game.Balance.Threshold(level);
             if (character != null) character.text = "Уровень персонажа " + level;
             if (xp != null) xp.text = level == game.Balance.maxLevel ? "Максимальный уровень / " + totalXP + " XP" : current + " / " + required + " XP до уровня " + (level+1);
-            if (xpFill != null) xpFill.rectTransform.sizeDelta = new Vector2(400*(level == game.Balance.maxLevel ? 1f : (float)current/required),8);
+            xpTarget = 400*(level == game.Balance.maxLevel ? 1f : (float)current/required);
+            if (runSummary != null)
+                runSummary.text = "Уровень " + level + "  ·  " + CraftMineSettings.PickaxeNames[game.Model.PickaxeTier] +
+                    " кирка  ·  +" + game.AttemptExperience + " XP  ·  Защита: " + game.Model.State.charges;
             if (stats != null)
             {
                 int radius = game.Balance.Radius(level);
@@ -423,28 +466,43 @@ namespace CraftMine
             if (movesCounter != null) movesCounter.text = "Ходы " + game.Model.State.moves;
             if (timeCounter != null) timeCounter.text = "Время " + FormatTime(game.Elapsed);
             if (undoCounter != null) undoCounter.text = "Отмены " + game.Model.UndoRemaining + " / 3";
-            if (notice != null) notice.text = game.Message ?? (attempt ? game.Model.ReachabilityWarning : "");
             foreach (var button in busyButtons) button.interactable = !game.Busy;
             if (undoButton != null) undoButton.interactable = game.CanUndo;
             if (dangerButton != null)
             {
-                dangerButton.GetComponentInChildren<Text>().text = "Линии падения: " + (game.ShowDanger ? "вкл." : "выкл.") + " · Space";
-                dangerButton.GetComponentInChildren<Text>().fontSize = 20;
+                dangerButton.GetComponentInChildren<Text>().text = "Опасности: " + (game.ShowDanger ? "вкл." : "выкл.");
+                dangerButton.GetComponentInChildren<Text>().fontSize = 18;
                 SetStyle(dangerButton,game.ShowDanger ? ButtonStyle.Primary : ButtonStyle.Secondary);
             }
-            if (counters != null) counters.text = "Сердечки " + game.Model.State.collected + " / " + game.Model.State.heartCount +
-                "      Ходы " + game.Model.State.moves + "      " + FormatTime(game.Elapsed) + "      Отмена " + game.Model.UndoRemaining + "/3";
+            if (volumeLabel != null) volumeLabel.text = "Текущая: " + Mathf.RoundToInt(game.Profile.volume*100) + "% · применяется сразу";
+            for (int i = 0; i < volumeButtons.Count; i++)
+            {
+                bool selected = Mathf.Abs(game.Profile.volume-i*.25f) < .001f;
+                volumeButtons[i].GetComponentInChildren<Text>().text = (i == 0 ? "Выкл." : (i*25) + "%") + (selected ? "\nВыбрано" : "");
+                SetStyle(volumeButtons[i],selected ? ButtonStyle.Primary : ButtonStyle.Secondary);
+            }
             if (notice != null) notice.text = game.Screen == ScreenMode.Tutorial ? "" : game.Message ?? (attempt ? game.Model.ReachabilityWarning : "");
-            if (status != null) status.text = game.Model.Room.strictTrail ? "Испытание: не пересекай след" : "След показывает твой маршрут";
+            if (status != null) status.text = (game.ShowDanger ? "Опасности включены  ·  " : "") +
+                (game.Model.Room.strictTrail ? "Не пересекай след" : "Свободный маршрут");
             if (tutorialTask != null) tutorialTask.text = "Шаг " + (game.Tutorial.Step+1) + " / 5  ·  " + game.Tutorial.Title;
             if (tutorialHint != null) tutorialHint.text = game.Tutorial.Hint;
             if (tutorialSkip != null) tutorialSkip.text = game.Tutorial.Step < 4 ? "Пропустить шаг" : "Скрыть подсказки";
+            foreach (var button in buttons) UpdateButton(button);
         }
         private static string FormatTime(float seconds) => ((int)seconds/60).ToString("00") + ":" + ((int)seconds%60).ToString("00");
         private void Update()
         {
             if (canvas == null || stage == null || game == null) return;
             canvas.scaleFactor = InterfaceLayout.Scale(Screen.width,Screen.height);
+            float enter = Mathf.Clamp01((Time.unscaledTime-screenEnteredAt)/.18f);
+            float eased = 1-Mathf.Pow(1-enter,3);
+            contentInput.alpha = animateScreen ? eased : 1;
+            content.anchoredPosition = new Vector2(0,animateScreen ? -10*(1-eased) : 0);
+            if (confirmationFade != null)
+                confirmationFade.alpha = Mathf.Clamp01((Time.unscaledTime-confirmationOpenedAt)/.14f);
+            if (xpFill != null)
+                xpFill.rectTransform.sizeDelta = new Vector2(Mathf.Lerp(xpFill.rectTransform.sizeDelta.x,xpTarget,
+                    1-Mathf.Exp(-12*Time.unscaledDeltaTime)),8);
             if (Time.unscaledTime > nextRefresh) { nextRefresh = Time.unscaledTime+.1f; Refresh(); }
             foreach (var button in buttons) UpdateButton(button);
             var eventSystem = EventSystem.current;
