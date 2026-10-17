@@ -65,7 +65,7 @@ namespace CraftMine
         public static string Requirement(PlayerProfile profile, CraftMineSettings settings, RecipeDefinition recipe)
         {
             if (recipe.pickaxeTier != profile.pickaxeTier + 1) return "Сначала создай предыдущую кирку";
-            if (settings.Level(profile.totalExperience) < recipe.requiredLevel) return "Нужен уровень персонажа " + recipe.requiredLevel;
+            if (settings.Level(profile.totalExperience) < recipe.requiredLevel) return "Нужен уровень героя " + recipe.requiredLevel;
             for (int i = 0; i < 4; i++)
                 if (profile.inventory[i] < recipe.cost[i]) return "Не хватает: " + CraftMineSettings.OreNames[i] + " × " + (recipe.cost[i] - profile.inventory[i]);
             return null;

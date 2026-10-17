@@ -17,8 +17,8 @@ namespace CraftMine
         public float[] pickaxeSpeed = { 1f, 1.15f, 1.3f, 1.45f, 1.6f };
         public string[] rewardNames = {
             "Деревянная кирка и медь", "Скорость копания +10%", "Открыта железная руда",
-            "Один заряд защиты", "Открыта золотая руда", "Область копания 3 × 2",
-            "Скорость копания ещё +10%", "Открыта алмазная руда", "Второй заряд защиты", "Область копания 3 × 3"
+            "Один щит на уровень", "Открыта золотая руда", "Копание сразу 3 × 2 клетки",
+            "Скорость копания ещё +10%", "Открыта алмазная руда", "Два щита на уровень", "Копание сразу 3 × 3 клетки"
         };
         public int Level(int totalExperience)
         {
@@ -54,5 +54,6 @@ namespace CraftMine
         public int[] bestMoves = new int[10];
         public float[] bestSeconds = new float[10];
         public float volume = .6f;
+        public bool tutorialSeen;
     }
 }
