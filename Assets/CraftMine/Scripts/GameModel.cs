@@ -128,11 +128,11 @@ namespace CraftMine
         }
         public string BlockReason(Vector2Int p)
         {
-            if (!Inside(p) || Cell(p) == CellType.Bedrock) return "Неразрушимая порода";
-            if (Cell(p) == CellType.Boulder) return "Валун преграждает путь";
-            if (Room.strictTrail && State.trail[p.x,p.y]) return "Испытание: нельзя пересекать свой след";
+            if (!Inside(p) || Cell(p) == CellType.Bedrock) return "Стена — здесь нельзя пройти";
+            if (Cell(p) == CellType.Boulder) return "Путь закрыт камнем";
+            if (Room.strictTrail && State.trail[p.x,p.y]) return "На этом уровне нельзя возвращаться на пройденные клетки";
             int ore = CraftMineSettings.OreIndex(Cell(p));
-            if (ore >= 0 && !CanMine(Cell(p))) return "Нужно: уровень " + CraftMineSettings.OreLevels[ore] +
+            if (ore >= 0 && !CanMine(Cell(p))) return "Нужны уровень героя " + CraftMineSettings.OreLevels[ore] +
                 ", кирка «" + CraftMineSettings.PickaxeNames[ore] + "» или лучше";
             return "Здесь нечего копать";
         }
@@ -262,7 +262,7 @@ namespace CraftMine
             }
             for (int y = 0; y < Height; y++) for (int x = 0; x < Width; x++)
                 if (State.hearts[x,y] && !seen.Contains(new Vector2Int(x,y)))
-                { ReachabilityWarning = "Сердечко отрезано. Попробуй отменить ход или изменить завал."; return; }
+                { ReachabilityWarning = "К сердечку больше нет пути. Отмени ход или освободи проход."; return; }
         }
         public List<Vector2Int> DangerCells()
         {

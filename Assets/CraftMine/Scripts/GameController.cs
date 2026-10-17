@@ -269,9 +269,9 @@ namespace CraftMine
             Busy = false; actionRoutine = null;
             if (result.hearts > 0) Play(heartSound);
             if (result.falls > 0) Play(rockSound);
-            if (result.shields > 0) Notify("Защита спасла героя! Валун разбит.");
+            if (result.shields > 0) Notify("Щит спас героя! Камень разбит.");
             if (result.levelsGained > 0)
-            { Play(levelSound); Notify("Уровень " + Model.Level + ": " + Balance.rewardNames[Model.Level-1], 5); }
+            { Play(levelSound); Notify("Уровень героя " + Model.Level + ": " + Balance.rewardNames[Model.Level-1], 5); }
             if (Model.State.status != RunStatus.Playing)
             {
                 Screen = ScreenMode.Results;

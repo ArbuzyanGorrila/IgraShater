@@ -9,12 +9,12 @@
 - Страница автора: https://kenney.nl/assets/pixel-platformer
 - Страница загрузки автора: https://opengameart.org/content/pixel-platformer-0
 - Архив: https://opengameart.org/sites/default/files/kenney_pixel-platformer.zip
-- В игре: грунт, порода, валуны, сердечки, кристаллы, робот и обозначение направления. Руды различаются цветом; используются исходные спрайты с окрашиванием средствами Unity.
+- В игре: земля, камни, сердечки, медные самородки, золотые монеты, алмазы, робот и указатель направления. У руд разные силуэты и цвета; используются исходные спрайты с окрашиванием средствами Unity. Ячейки Pixel Platformer нарезаются целиком, по 18 × 18 пикселей.
 - Текст лицензии: `Assets/CraftMine/Resources/Art/LICENSE-PixelPlatformer.txt`.
 
 ## Kenney Tiny Dungeon
 
-Автор: Kenney. Лицензия: CC0 1.0. Дополнительный скачанный атлас сохранён для последующего расширения; текущая игровая сцена использует Pixel Platformer.
+Автор: Kenney. Лицензия: CC0 1.0. В игре используются каменные стены, тёмный фон выкопанных клеток, квадратная железная руда, рамки героя и области копания, знак возможного падения камней. Пиксельный атлас дополняет Pixel Platformer.
 
 - Страница автора: https://kenney.nl/assets/tiny-dungeon
 - Архив: https://opengameart.org/sites/default/files/kenney_tinydungeon.zip
