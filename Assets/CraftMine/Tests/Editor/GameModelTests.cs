@@ -202,6 +202,20 @@ namespace CraftMineTests
             Assert.That(viewport.width,Is.EqualTo(w).Within(.01f));
             Assert.That(viewport.height,Is.EqualTo(h).Within(.01f));
         }
+        [TestCase(1280,720,32,123.2f,1216,472)]
+        [TestCase(1600,900,40,154,1520,590)]
+        [TestCase(1920,1080,48,184.8f,1824,708)]
+        [TestCase(1024,768,25.6f,194.56f,972.8f,377.6f)]
+        [TestCase(2560,1080,368,184.8f,1824,708)]
+        public void GameplayViewportStaysCenteredBetweenHudAndFooter(int width,int height,float x,float y,float w,float h)
+        {
+            var viewport = InterfaceLayout.BoardPixels(width,height,true);
+            Assert.That(viewport.x,Is.EqualTo(x).Within(.01f));
+            Assert.That(viewport.y,Is.EqualTo(y).Within(.01f));
+            Assert.That(viewport.width,Is.EqualTo(w).Within(.01f));
+            Assert.That(viewport.height,Is.EqualTo(h).Within(.01f));
+            Assert.That(viewport.center.x,Is.EqualTo(width/2f).Within(.01f));
+        }
         [Test] public void StrictTrailPreventsReturning()
         {
             var m = Basic(); room.strictTrail = true; m.Step(Vector2Int.right);
